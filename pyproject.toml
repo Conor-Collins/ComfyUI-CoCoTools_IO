@@ -1,7 +1,7 @@
 [project]
 name = "cocotools_io"
-description = "A streamlined set of custom nodes for ComfyUI focused on advanced image I/O operations, particularly for EXR file handling."
-version = "1.0.0"
+description = "Advanced image input and output: EXR, 32 bit support and more"
+version = "0.1.1"
 license = {file = "LICENSE"}
 dependencies = ["# Core Dependencies", "torch>=1.10.0", "numpy>=1.21.0", "# Image Processing", "Pillow>=9.0.0", "opencv-python>=4.5.0", "tifffile", "OpenImageIO>=2.4.13.0", "# Optional: Logging and Debugging", "rich>=10.0.0"]
 
@@ -10,6 +10,6 @@ Repository = "https://github.com/Conor-Collins/ComfyUI-CoCoTools_IO"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "coco"
 DisplayName = "ComfyUI-CoCoTools_IO"
 Icon = ""

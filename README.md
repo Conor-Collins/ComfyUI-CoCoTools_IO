@@ -1,6 +1,6 @@
 # ComfyUI-CoCoTools_IO
 
-A streamlined set of custom nodes for ComfyUI focused on advanced image I/O operations, particularly for EXR file handling.
+A set of nodes focused on advanced image I/O operations, particularly for EXR file handling.
 
 ## Features
 - Advanced EXR image input with multilayer support
@@ -45,6 +45,7 @@ python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requiremen
 - [x] Implement EXR saver using OpenImageIO
 - [x] Implement multilayer EXR system (render passes, AOVs, embedded images, etc.)
 - [x] Add contextual menus based on selected file type in saver
+- [ ] Add support for EXR sequences
 
 #### Future Enhancements
 - [ ] Add ACES or OCIO color config profiles
@@ -57,4 +58,4 @@ python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requiremen
 - [ ] Add visual examples in the readme
 
 #### Registration
-- [ ] Submit to ComfyUI Registry
+- [x] Submit to ComfyUI Registry
