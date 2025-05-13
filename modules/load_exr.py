@@ -99,8 +99,8 @@ class load_exr:
                 if group_name in ('R', 'G', 'B', 'A', 'RGB', 'XYZ'):
                     continue
                 
-                # Skip sequence tracking entries (they're metadata, not actual layers)
-                if group_name.endswith('_sequence'):
+                # Skip layer group tracking entries (they're metadata, not actual layers)
+                if group_name.endswith('_layer_group'):
                     continue
                 
                 # Check if this is a cryptomatte layer
@@ -160,8 +160,8 @@ class load_exr:
                         is_cryptomatte, layers_dict, cryptomatte_dict
                     )
             
-            # Handle sequences detected by _get_channel_groups
-            self._process_sequences(
+            # Handle layer groups detected by _get_channel_groups
+            self._process_layer_groups(
                 channel_groups, cryptomatte_dict, metadata
             )
             
@@ -448,34 +448,34 @@ class load_exr:
         else:
             layers_dict[group_name] = multi_tensor
 
-    def _process_sequences(self, channel_groups, cryptomatte_dict, metadata):
-        """Process sequences of related layers (like cryptomatte sequences)"""
+    def _process_layer_groups(self, channel_groups, cryptomatte_dict, metadata):
+        """Process groups of related layers (like cryptomatte layer groups)"""
         for group_name, suffixes in channel_groups.items():
-            if not group_name.endswith('_sequence'):
+            if not group_name.endswith('_layer_group'):
                 continue
             
-            # Get the base name (without _sequence)
-            base_name = group_name[:-9]  # Remove '_sequence'
+            # Get the base name (without _layer_group)
+            base_name = group_name[:-12]  # Remove '_layer_group'
             
-            # Skip if we don't have any items in the sequence
+            # Skip if we don't have any items in the layer group
             if not suffixes:
                 continue
             
-            # Check if this is a cryptomatte sequence
-            is_crypto_sequence = self._is_cryptomatte_layer(base_name)
+            # Check if this is a cryptomatte layer group
+            is_crypto_layer_group = self._is_cryptomatte_layer(base_name)
             
-            # If any part of the sequence is already in the cryptomatte dict, keep it there
-            in_crypto_dict = any(seq_part in cryptomatte_dict for seq_part in suffixes)
+            # If any part of the layer group is already in the cryptomatte dict, keep it there
+            in_crypto_dict = any(group_part in cryptomatte_dict for group_part in suffixes)
             
-            # Store information about this sequence in metadata
-            if 'sequences' not in metadata:
-                metadata['sequences'] = {}
+            # Store information about this layer group in metadata
+            if 'layer_groups' not in metadata:
+                metadata['layer_groups'] = {}
             
-            metadata['sequences'][base_name] = suffixes
+            metadata['layer_groups'][base_name] = suffixes
             
-            # If this is a cryptomatte sequence, make it accessible through the cryptomatte dict
-            if is_crypto_sequence or in_crypto_dict:
-                # Add a reference to the sequence in the cryptomatte dict
+            # If this is a cryptomatte layer group, make it accessible through the cryptomatte dict
+            if is_crypto_layer_group or in_crypto_dict:
+                # Add a reference to the layer group in the cryptomatte dict
                 cryptomatte_dict[group_name] = [cryptomatte_dict.get(part, None) for part in suffixes]
 
     def _store_layer_type_metadata(self, layers_dict, metadata):
@@ -513,16 +513,16 @@ class load_exr:
         
         This method handles complex naming schemes including:
         - Standard RGB/XYZ channels
-        - Cryptomatte layers and sequences (like CryptoAsset00, CryptoMaterial00)
+        - Cryptomatte layers and layer groups (like CryptoAsset00, CryptoMaterial00)
         - Depth channels with various naming conventions
-        - Sequences of related layers (e.g., segmentation, segmentation00, segmentation01)
+        - Layer groups of related layers (e.g., segmentation, segmentation00, segmentation01)
         - Hierarchical naming with multiple dots (e.g., "CITY SCENE.AO.R")
         """
         groups = {}
-        # Track sequences of numbered layers (like layer00, layer01, etc.)
-        sequence_prefixes = set()
+        # Track groups of numbered layers (like layer00, layer01, etc.)
+        layer_group_prefixes = set()
         
-        # First pass: identify all channel groups and detect sequences
+        # First pass: identify all channel groups and detect layer groups
         for channel in channel_names:
             # Handle channels with dots (indicating a group)
             if '.' in channel:
@@ -541,14 +541,14 @@ class load_exr:
                     # and "R" as the suffix
                     prefix, suffix = channel.split('.', 1)
                 
-                # Check for numbered sequence layers (e.g., binary_segmentation00)
+                # Check for numbered layer group items (e.g., binary_segmentation00)
                 base_prefix = prefix
                 if any(prefix.endswith(f"{i:02d}") for i in range(10)):
                     # Extract the base name without the number
                     for i in range(10):
                         if prefix.endswith(f"{i:02d}"):
                             base_prefix = prefix[:-2]
-                            sequence_prefixes.add(base_prefix)
+                            layer_group_prefixes.add(base_prefix)
                             break
                 
                 # Add to the appropriate group
@@ -592,7 +592,7 @@ class load_exr:
             for dc in depth_channels:
                 groups['Depth'].append(dc)
         
-        # Handle cryptomatte sequences - look for patterns like CryptoAsset00, CryptoMaterial00
+        # Handle cryptomatte layer groups - look for patterns like CryptoAsset00, CryptoMaterial00
         crypto_prefixes = set()
         for prefix in groups.keys():
             if ('crypto' in prefix.lower() or prefix.startswith('Crypto')):
@@ -604,34 +604,34 @@ class load_exr:
                             crypto_prefixes.add(base_name)
                             break
         
-        # Group the cryptomatte sequences together in the metadata for easier processing
+        # Group the cryptomatte layer groups together in the metadata for easier processing
         for crypto_base in crypto_prefixes:
-            # Add an entry to track this cryptomatte sequence
-            if f"{crypto_base}_sequence" not in groups:
-                groups[f"{crypto_base}_sequence"] = []
+            # Add an entry to track this cryptomatte layer group
+            if f"{crypto_base}_layer_group" not in groups:
+                groups[f"{crypto_base}_layer_group"] = []
             
-            # Find all indices in the sequence
+            # Find all indices in the layer group
             indices = []
-            for i in range(10):  # Assume max 10 indices in sequence
-                sequence_name = f"{crypto_base}{i:02d}"
-                if sequence_name in groups:
+            for i in range(10):  # Assume max 10 indices in layer group
+                group_name = f"{crypto_base}{i:02d}"
+                if group_name in groups:
                     indices.append(i)
-                    groups[f"{crypto_base}_sequence"].append(sequence_name)
+                    groups[f"{crypto_base}_layer_group"].append(group_name)
         
-        # Same for other detected sequences (segmentation00, segmentation01, etc.)
-        for seq_base in sequence_prefixes:
-            if seq_base in crypto_prefixes:
+        # Same for other detected layer groups (segmentation00, segmentation01, etc.)
+        for group_base in layer_group_prefixes:
+            if group_base in crypto_prefixes:
                 continue  # Already handled above
                 
-            # Add an entry to track this sequence
-            if f"{seq_base}_sequence" not in groups:
-                groups[f"{seq_base}_sequence"] = []
+            # Add an entry to track this layer group
+            if f"{group_base}_layer_group" not in groups:
+                groups[f"{group_base}_layer_group"] = []
             
-            # Find all indices in the sequence
-            for i in range(10):  # Assume max 10 indices in sequence
-                sequence_name = f"{seq_base}{i:02d}"
-                if sequence_name in groups:
-                    groups[f"{seq_base}_sequence"].append(sequence_name)
+            # Find all indices in the layer group
+            for i in range(10):  # Assume max 10 indices in layer group
+                group_name = f"{group_base}{i:02d}"
+                if group_name in groups:
+                    groups[f"{group_base}_layer_group"].append(group_name)
         
         return groups
 
