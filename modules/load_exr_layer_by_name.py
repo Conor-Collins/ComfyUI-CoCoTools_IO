@@ -58,6 +58,11 @@ class load_exr_layer_by_name:
         if not layers or len(layers) == 0:
             logger.warning("No layers available in the input")
             return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
+            
+        # Log the available layers for debugging
+        logger.info(f"Available layers: {list(layers.keys())}")
+        for layer_key, layer_tensor in layers.items():
+            logger.info(f"Layer '{layer_key}' has shape {layer_tensor.shape} and type {layer_tensor.dtype}")
         
         # Update the class variable with available layer names
         self.__class__.available_layers = ["none"] + sorted(list(layers.keys()))
@@ -91,13 +96,19 @@ class load_exr_layer_by_name:
                         layer_name = hierarchical_matches[0]
                         logger.info(f"Found hierarchical layer match: '{layer_name}'")
                     else:
-                        logger.warning(f"Layer '{layer_name}' not found and no close matches")
-                        # Use the first available layer as fallback
-                        if len(layers) > 0:
-                            layer_name = list(layers.keys())[0]
-                            logger.info(f"Using first available layer: {layer_name}")
+                        # Try to match subimage names (e.g., "AO" for a subimage)
+                        subimage_matches = [l for l in layers.keys() if l.split('.')[0].lower() == layer_name.lower()]
+                        if subimage_matches:
+                            layer_name = subimage_matches[0]
+                            logger.info(f"Found subimage match: '{layer_name}'")
                         else:
-                            return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
+                            logger.warning(f"Layer '{layer_name}' not found and no close matches")
+                            # Use the first available layer as fallback
+                            if len(layers) > 0:
+                                layer_name = list(layers.keys())[0]
+                                logger.info(f"Using first available layer: {layer_name}")
+                            else:
+                                return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
         
         # If no layer is specified or "none" is selected, return empty tensors
         if not layer_name or layer_name == "none":
@@ -107,27 +118,82 @@ class load_exr_layer_by_name:
         # Get the requested layer
         layer_tensor = layers[layer_name]
         
+        # Log the layer tensor shape and type
+        logger.info(f"Processing layer '{layer_name}' with shape {layer_tensor.shape} and type {layer_tensor.dtype}")
+        
+        # Debug: Print the requested layer name
+        logger.info(f"Requested layer: '{layer_name}'")
+        
+        # Special handling for alpha layers only (not depth or Z)
+        is_alpha_layer = 'alpha' in layer_name.lower()
+        
         # Check tensor shape to determine its type
         if len(layer_tensor.shape) == 4 and layer_tensor.shape[3] == 3:
             # It's an RGB tensor [1, H, W, 3]
-            if conversion == "To Mask":
+            if conversion == "To Mask" or (conversion == "Auto" and is_alpha_layer):
                 # Convert RGB to mask by taking the mean across channels
                 mask_output = layer_tensor.mean(dim=3, keepdim=False)
+                image_output = None
+                logger.info(f"Converted RGB tensor to mask: shape={mask_output.shape}")
+            else:
+                # Keep as an image
+                image_output = layer_tensor
+                mask_output = None
+                logger.info(f"Using RGB tensor as image: shape={image_output.shape}")
+        elif len(layer_tensor.shape) == 3:
+            # It's a single-channel tensor [1, H, W]
+            # Special handling for depth and Z channels
+            is_depth_or_z = 'depth' in layer_name.lower() or layer_name.lower() == 'z'
+            
+            if conversion == "To RGB":
+                # Convert to RGB by replicating to 3 channels
+                image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
+                mask_output = None
+                logger.info(f"Converted single-channel tensor to RGB: shape={image_output.shape}")
+            elif is_depth_or_z:
+                # For depth and Z channels, return as image by default
+                image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
+                mask_output = None
+                logger.info(f"Converted depth/Z tensor to RGB: shape={image_output.shape}")
+            elif 'alpha' in layer_name.lower():
+                # For alpha channels, return as mask
+                mask_output = layer_tensor
+                image_output = None
+                logger.info(f"Using alpha tensor as mask: shape={mask_output.shape}")
+            else:
+                # For other single-channel data, use the conversion setting
+                if conversion == "To Mask":
+                    mask_output = layer_tensor
+                    image_output = None
+                    logger.info(f"Using single-channel tensor as mask: shape={mask_output.shape}")
+                else:
+                    # Default to RGB for Auto mode for non-alpha channels
+                    image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
+                    mask_output = None
+                    logger.info(f"Using single-channel tensor as RGB (Auto): shape={image_output.shape}")
+        # Special case for empty tensors or tensors with shape [1, 1, 1, 3]
+        elif len(layer_tensor.shape) == 4 and layer_tensor.shape[1] == 1 and layer_tensor.shape[2] == 1:
+            # This is likely an empty tensor or a placeholder
+            # Check if it's an alpha or depth layer
+            if 'alpha' in layer_name.lower() or 'depth' in layer_name.lower():
+                # Create a proper mask tensor
+                # Get dimensions from another layer if possible
+                height, width = 720, 1280  # Default size
+                for other_name, other_tensor in layers.items():
+                    if other_name != layer_name and len(other_tensor.shape) >= 3:
+                        if len(other_tensor.shape) == 4:  # RGB tensor [1, H, W, 3]
+                            height, width = other_tensor.shape[1], other_tensor.shape[2]
+                        elif len(other_tensor.shape) == 3:  # Mask tensor [1, H, W]
+                            height, width = other_tensor.shape[1], other_tensor.shape[2]
+                        break
+                
+                # Create a mask tensor with the correct dimensions
+                mask_output = torch.zeros((1, height, width))
                 image_output = None
             else:
                 # Keep as an image
                 image_output = layer_tensor
                 mask_output = None
-        elif len(layer_tensor.shape) == 3:
-            # It's a mask/single-channel tensor [1, H, W]
-            if conversion == "To RGB":
-                # Convert mask to RGB by replicating to 3 channels
-                image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
-                mask_output = None
-            else:
-                # Keep as a mask
-                mask_output = layer_tensor
-                image_output = None
         else:
             # Unknown format, log error
             logger.error(f"Layer '{layer_name}' has an unsupported tensor shape: {layer_tensor.shape}")

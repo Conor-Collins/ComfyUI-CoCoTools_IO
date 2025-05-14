@@ -71,16 +71,8 @@ class load_exr:
             # Scan the EXR metadata if not already provided
             metadata = layer_data if layer_data else self.scan_exr_metadata(image_path)
             
-            # Load all pixel data
-            all_data = self.load_all_data(image_path)
-            
-            # Extract channel groups from metadata for the main subimage
-            channel_names = metadata["subimages"][0]["channel_names"]
-            channel_groups = self._get_channel_groups(channel_names)
-            metadata["channel_groups"] = channel_groups
-            
-            # Prepare outputs
-            height, width, channels = all_data.shape
+            # Load all pixel data from all subimages
+            all_subimage_data = self.load_all_data(image_path)
             
             # Dictionary to store all non-cryptomatte layers
             layers_dict = {}
@@ -88,77 +80,188 @@ class load_exr:
             # Dictionary to store all cryptomatte layers
             cryptomatte_dict = {}
             
-            # Process default RGB and Alpha channels
-            rgb_tensor, alpha_tensor = self._process_default_channels(
-                all_data, channel_names, height, width, normalize
-            )
+            # List to store all channel names from all subimages
+            all_channel_names = []
             
-            # Process each channel group
-            for group_name, suffixes in channel_groups.items():
-                # Skip the default RGB/A which are already handled separately
-                if group_name in ('R', 'G', 'B', 'A', 'RGB', 'XYZ'):
+            # Process each subimage
+            for subimage_idx, subimage_info in enumerate(metadata["subimages"]):
+                # Get subimage data
+                if subimage_idx not in all_subimage_data:
+                    logger.warning(f"No data found for subimage {subimage_idx}")
                     continue
                 
-                # Skip layer group tracking entries (they're metadata, not actual layers)
-                if group_name.endswith('_layer_group'):
-                    continue
+                subimage_data = all_subimage_data[subimage_idx]
+                subimage_name = subimage_info["name"]
+                channel_names = subimage_info["channel_names"]
                 
-                # Check if this is a cryptomatte layer
-                is_cryptomatte = self._is_cryptomatte_layer(group_name)
+                # Add channel names to the list
+                all_channel_names.extend(channel_names)
                 
-                # Find all channel indices for this group
-                group_indices = []
-                for i, channel in enumerate(channel_names):
-                    # Match exact channel name or prefix with dot
-                    if (channel == group_name) or (channel.startswith(f"{group_name}.")):
-                        group_indices.append(i)
+                # Get dimensions
+                height, width, channels = subimage_data.shape
                 
-                if not group_indices:
-                    continue
-                
-                # Determine layer type and process accordingly
-                
-                # Case 1: RGB/RGBA layer - standard naming with RGB or RGBA components
-                if all(suffix in suffixes for suffix in ['R', 'G', 'B']):
-                    self._process_rgb_type_layer(
-                        group_name, 'R', 'G', 'B', 'A', channel_names, all_data, 
-                        normalize, is_cryptomatte, layers_dict, cryptomatte_dict
+                # Process the first subimage as the default RGB and Alpha
+                if subimage_idx == 0:
+                    # Extract channel groups for the first subimage
+                    channel_groups = self._get_channel_groups(channel_names)
+                    metadata["channel_groups"] = channel_groups
+                    
+                    # Process default RGB and Alpha channels
+                    rgb_tensor, alpha_tensor = self._process_default_channels(
+                        subimage_data, channel_names, height, width, normalize
                     )
                 
-                # Case 2: Lower case rgb/rgba (common in some renderers like Blender Cycles)
-                elif all(suffix in suffixes for suffix in ['r', 'g', 'b']):
-                    self._process_rgb_type_layer(
-                        group_name, 'r', 'g', 'b', 'a', channel_names, all_data, 
-                        normalize, is_cryptomatte, layers_dict, cryptomatte_dict
-                    )
-                
-                # Case 3: XYZ vector channels (often used for normals, positions, velocity)
-                elif all(suffix in suffixes for suffix in ['X', 'Y', 'Z']):
-                    self._process_xyz_type_layer(
-                        group_name, 'X', 'Y', 'Z', channel_names, all_data, 
-                        normalize, layers_dict
-                    )
+                # For all subimages, add the subimage as a layer
+                # Use the subimage name as the layer name
+                if subimage_name != "default":
+                    # For RGB subimages (3 or 4 channels)
+                    if channels >= 3:
+                        # Extract RGB channels
+                        rgb_array = subimage_data[:, :, :3]
                         
-                # Case 4: Lower case xyz components (like N.x, N.y, N.z)
-                elif all(suffix in suffixes for suffix in ['x', 'y', 'z']):
-                    self._process_xyz_type_layer(
-                        group_name, 'x', 'y', 'z', channel_names, all_data, 
-                        normalize, layers_dict
-                    )
+                        # Convert to torch tensor
+                        rgb_tensor_layer = torch.from_numpy(rgb_array).float()
+                        rgb_tensor_layer = rgb_tensor_layer.unsqueeze(0)  # [1, H, W, 3]
+                        
+                        # Normalize if requested
+                        if normalize:
+                            rgb_range = rgb_tensor_layer.max() - rgb_tensor_layer.min()
+                            if rgb_range > 0:
+                                rgb_tensor_layer = (rgb_tensor_layer - rgb_tensor_layer.min()) / rgb_range
+                        
+                        # Store in layers dictionary
+                        layers_dict[subimage_name] = rgb_tensor_layer
+                        
+                        # If there's an alpha channel, process it too
+                        if channels >= 4:
+                            alpha_array = subimage_data[:, :, 3]
+                            
+                            alpha_tensor_layer = torch.from_numpy(alpha_array).float()
+                            alpha_tensor_layer = alpha_tensor_layer.unsqueeze(0)  # [1, H, W]
+                            
+                            if normalize:
+                                alpha_tensor_layer = alpha_tensor_layer.clamp(0, 1)
+                            
+                            # Store alpha as a mask tensor
+                            layers_dict[f"{subimage_name}_alpha"] = alpha_tensor_layer
+                    
+                    # For single-channel subimages
+                    elif channels == 1:
+                        # Extract the single channel
+                        channel_array = subimage_data[:, :, 0]
+                        
+                        # Check if it's likely to be a mask/depth type channel
+                        is_mask_type = any(keyword in subimage_name.lower() 
+                                        for keyword in ['depth', 'mask', 'matte', 'alpha', 'id', 'z'])
+                        
+                        if is_mask_type or subimage_name == 'depth':  # Explicitly handle 'depth' subimage
+                            # Store as a mask tensor
+                            mask_tensor = torch.from_numpy(channel_array).float().unsqueeze(0)  # [1, H, W]
+                            
+                            if normalize:
+                                mask_range = mask_tensor.max() - mask_tensor.min()
+                                if mask_range > 0:
+                                    mask_tensor = (mask_tensor - mask_tensor.min()) / mask_range
+                            
+                            # Ensure the mask tensor has valid data
+                            if mask_tensor.numel() > 1:
+                                layers_dict[subimage_name] = mask_tensor
+                            else:
+                                # Create a placeholder mask with proper dimensions
+                                layers_dict[subimage_name] = torch.zeros((1, height, width))
+                        else:
+                            # Replicate to 3 channels for RGB visualization
+                            rgb_array = np.stack([channel_array] * 3, axis=2)
+                            
+                            channel_tensor = torch.from_numpy(rgb_array).float()
+                            channel_tensor = channel_tensor.unsqueeze(0)  # [1, H, W, 3]
+                            
+                            if normalize:
+                                channel_range = channel_tensor.max() - channel_tensor.min()
+                                if channel_range > 0:
+                                    channel_tensor = (channel_tensor - channel_tensor.min()) / channel_range
+                            
+                            # Ensure the tensor has valid data
+                            if channel_tensor.numel() > 3:
+                                layers_dict[subimage_name] = channel_tensor
+                            else:
+                                # Create a placeholder RGB tensor with proper dimensions
+                                layers_dict[subimage_name] = torch.zeros((1, height, width, 3))
                 
-                # Case 5: Single-channel data (like depth maps, Z channel)
-                elif len(group_indices) == 1 or 'Z' in suffixes:
-                    self._process_single_channel(
-                        group_name, suffixes, group_indices, channel_names,
-                        all_data, normalize, layers_dict
-                    )
-                
-                # Case 6: Handle other multi-channel data that doesn't fit the patterns above
-                else:
-                    self._process_multi_channel(
-                        group_name, group_indices, all_data, normalize,
-                        is_cryptomatte, layers_dict, cryptomatte_dict
-                    )
+                # Only process channel groups for the first subimage (main image)
+                # For other subimages, we've already added them as layers above
+                if subimage_idx == 0:
+                    # Process channel groups within this subimage
+                    channel_groups = self._get_channel_groups(channel_names)
+                    
+                    # Process each channel group in this subimage
+                    for group_name, suffixes in channel_groups.items():
+                        # Skip the default RGB/A which are already handled separately
+                        if group_name in ('R', 'G', 'B', 'A', 'RGB', 'XYZ'):
+                            continue
+                        
+                        # Skip layer group tracking entries (they're metadata, not actual layers)
+                        if group_name.endswith('_layer_group'):
+                            continue
+                        
+                        # Check if this is a cryptomatte layer
+                        is_cryptomatte = self._is_cryptomatte_layer(group_name)
+                        
+                        # Find all channel indices for this group
+                        group_indices = []
+                        for i, channel in enumerate(channel_names):
+                            # Match exact channel name or prefix with dot
+                            if (channel == group_name) or (channel.startswith(f"{group_name}.")):
+                                group_indices.append(i)
+                        
+                        if not group_indices:
+                            continue
+                        
+                        # Determine layer type and process accordingly
+                        
+                        # Case 1: RGB/RGBA layer - standard naming with RGB or RGBA components
+                        if all(suffix in suffixes for suffix in ['R', 'G', 'B']):
+                            self._process_rgb_type_layer(
+                                group_name, 'R', 'G', 'B', 'A', channel_names, subimage_data, 
+                                normalize, is_cryptomatte, layers_dict, cryptomatte_dict
+                            )
+                        
+                        # Case 2: Lower case rgb/rgba (common in some renderers like Blender Cycles)
+                        elif all(suffix in suffixes for suffix in ['r', 'g', 'b']):
+                            self._process_rgb_type_layer(
+                                group_name, 'r', 'g', 'b', 'a', channel_names, subimage_data, 
+                                normalize, is_cryptomatte, layers_dict, cryptomatte_dict
+                            )
+                        
+                        # Case 3: XYZ vector channels (often used for normals, positions, velocity)
+                        elif all(suffix in suffixes for suffix in ['X', 'Y', 'Z']):
+                            self._process_xyz_type_layer(
+                                group_name, 'X', 'Y', 'Z', channel_names, subimage_data, 
+                                normalize, layers_dict
+                            )
+                                
+                        # Case 4: Lower case xyz components (like N.x, N.y, N.z)
+                        elif all(suffix in suffixes for suffix in ['x', 'y', 'z']):
+                            self._process_xyz_type_layer(
+                                group_name, 'x', 'y', 'z', channel_names, subimage_data, 
+                                normalize, layers_dict
+                            )
+                        
+                        # Case 5: Single-channel data (like depth maps, Z channel)
+                        elif len(group_indices) == 1 or 'Z' in suffixes:
+                            self._process_single_channel(
+                                group_name, suffixes, group_indices, channel_names,
+                                subimage_data, normalize, layers_dict
+                            )
+                        
+                        # Case 6: Handle other multi-channel data that doesn't fit the patterns above
+                        else:
+                            self._process_multi_channel(
+                                group_name, group_indices, subimage_data, normalize,
+                                is_cryptomatte, layers_dict, cryptomatte_dict
+                            )
+            
+            # Process layer groups from the first subimage (for backward compatibility)
             
             # Handle layer groups detected by _get_channel_groups
             self._process_layer_groups(
@@ -176,8 +279,8 @@ class load_exr:
             if cryptomatte_dict:
                 logger.info(f"Available cryptomatte layers: {list(cryptomatte_dict.keys())}")
             
-            # Create a readable list of channel names
-            layer_names = channel_names.copy()
+            # Create a readable list of channel names from all subimages
+            layer_names = all_channel_names
             
             # Create a list of processed layer names that match the keys in the returned dictionaries
             processed_layer_names = self._create_processed_layer_names(layers_dict, cryptomatte_dict)
@@ -393,6 +496,11 @@ class load_exr:
             is_mask_type = any(keyword in group_name.lower() 
                                for keyword in ['depth', 'mask', 'matte', 'alpha', 'id', 'z'])
             
+            # Special case for Z channel
+            if group_name == 'Z':
+                is_mask_type = True
+                logger.info(f"Processing Z channel as mask: shape={channel_array.shape}")
+            
             if is_mask_type:
                 # Store as a mask tensor
                 mask_tensor = torch.from_numpy(channel_array).float().unsqueeze(0)  # [1, H, W]
@@ -401,6 +509,11 @@ class load_exr:
                     mask_range = mask_tensor.max() - mask_tensor.min()
                     if mask_range > 0:
                         mask_tensor = (mask_tensor - mask_tensor.min()) / mask_range
+                
+                # Log mask tensor stats
+                logger.info(f"Created mask tensor for {group_name}: shape={mask_tensor.shape}, " +
+                           f"min={mask_tensor.min().item():.6f}, max={mask_tensor.max().item():.6f}, " +
+                           f"mean={mask_tensor.mean().item():.6f}")
                 
                 layers_dict[group_name] = mask_tensor
             else:
@@ -414,6 +527,11 @@ class load_exr:
                     channel_range = channel_tensor.max() - channel_tensor.min()
                     if channel_range > 0:
                         channel_tensor = (channel_tensor - channel_tensor.min()) / channel_range
+                
+                # Log RGB tensor stats
+                logger.info(f"Created RGB tensor for {group_name}: shape={channel_tensor.shape}, " +
+                           f"min={channel_tensor.min().item():.6f}, max={channel_tensor.max().item():.6f}, " +
+                           f"mean={channel_tensor.mean().item():.6f}")
                 
                 layers_dict[group_name] = channel_tensor
 
@@ -635,30 +753,44 @@ class load_exr:
         
         return groups
 
-    def load_all_data(self, image_path: str) -> np.ndarray:
+    def load_all_data(self, image_path: str) -> Dict[int, np.ndarray]:
         """
-        Load all pixel data from the EXR file.
-        Returns a numpy array of shape (height, width, channels).
+        Load all pixel data from all subimages in the EXR file.
+        Returns a dictionary mapping subimage index to numpy array of shape (height, width, channels).
         """
         input_file = None
         try:
             input_file = oiio.ImageInput.open(image_path)
             if not input_file:
                 raise IOError(f"Could not open {image_path}")
-                
-            # Get basic specs
-            spec = input_file.spec()
-            width = spec.width
-            height = spec.height
-            channels = spec.nchannels
             
-            # Read all pixel data
-            pixels = input_file.read_image()
-            if pixels is None:
-                raise IOError(f"Failed to read image data from {image_path}")
+            # Dictionary to store data for each subimage
+            all_subimage_data = {}
+            
+            # Iterate through all subimages
+            current_subimage = 0
+            more_subimages = True
+            
+            while more_subimages:
+                # Get specs for current subimage
+                spec = input_file.spec()
+                width = spec.width
+                height = spec.height
+                channels = spec.nchannels
                 
-            # Convert to numpy array with correct shape
-            return np.array(pixels, dtype=np.float32).reshape(height, width, channels)
+                # Read pixel data for current subimage
+                pixels = input_file.read_image()
+                if pixels is None:
+                    logger.warning(f"Failed to read image data for subimage {current_subimage} from {image_path}")
+                else:
+                    # Convert to numpy array with correct shape
+                    all_subimage_data[current_subimage] = np.array(pixels, dtype=np.float32).reshape(height, width, channels)
+                
+                # Move to next subimage if available
+                more_subimages = input_file.seek_subimage(current_subimage + 1, 0)
+                current_subimage += 1
+            
+            return all_subimage_data
             
         finally:
             if input_file:

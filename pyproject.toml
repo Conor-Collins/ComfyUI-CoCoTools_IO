@@ -1,7 +1,7 @@
 [project]
-name = "cocotools_io"
+name = "ComfyUI-CoCoTools_IO"
 description = "Advanced image input and output: EXR, 32 bit support and more"
-version = "0.1.2"
+version = "0.1.3"
 license = {file = "LICENSE"}
 dependencies = ["# Core Dependencies", "torch>=1.10.0", "numpy>=1.21.0", "# Image Processing", "Pillow>=9.0.0", "opencv-python>=4.5.0", "tifffile", "OpenImageIO>=2.4.13.0", "# Optional: Logging and Debugging", "rich>=10.0.0"]
 
