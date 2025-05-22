@@ -34,7 +34,7 @@ python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requiremen
 - **Image Saver**: Save images in various formats with format-specific options (bit depth, compression, etc.)
 
 ### Image Processing
-- **Colorspace**: Convert between sRGB and Linear colorspaces
+- **Colorspace Converter**: Convert between various colorspaces (sRGB, Linear, ACEScg, etc.)
 - **Z Normalize**: Normalize depth maps and other single-channel data
 
 
@@ -48,7 +48,7 @@ python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requiremen
 - [ ] Add support for EXR sequences
 
 #### Future Enhancements
-- [ ] Add ACES or OCIO color config profiles
+- [x] Add ACES or OCIO color config profiles
 - [ ] Create frequency-based image processing tools
 - [ ] Restore additional utility nodes (JSON handling, regex, etc.)
 
@@ -59,3 +59,15 @@ python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requiremen
 
 #### Registration
 - [x] Submit to ComfyUI Registry
+
+## Third-Party Libraries and Licensing
+
+This project uses the following third-party libraries:
+
+- **Colour Science for Python**: Used for colorspace transformations in the Colorspace Converter node. Licensed under the New BSD License.
+- **OpenColorIO**: Used for color space transformations. Licensed under the BSD 3-Clause License.
+- **ACES Configuration**: The ACES OCIO configuration file is provided by the Academy of Motion Picture Arts and Sciences.
+
+For detailed licensing information, please see the [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) file.
+
+This project is licensed under the MIT License. The BSD 3-Clause License used by OpenColorIO and the New BSD License used by colour-science are compatible with the MIT License, allowing us to include and use these components within this MIT-licensed project.

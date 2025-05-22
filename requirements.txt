@@ -1,6 +1,7 @@
 # Core Dependencies
 torch>=1.10.0
 numpy>=1.21.0
+colour-science>=0.4.2
 
 # Image Processing
 Pillow>=9.0.0
