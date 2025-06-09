@@ -11,5 +11,5 @@ Repository = "https://github.com/Conor-Collins/ComfyUI-CoCoTools_IO"
 
 [tool.comfy]
 PublisherId = "coco"
-DisplayName = "ComfyUI-CoCoTools_IO"
+DisplayName = "CoCoTools_IO"
 Icon = ""
