@@ -1,15 +1,15 @@
 [project]
-name = "ComfyUI-CoCoTools_IO"
+name = "CoCoTools_IO"
 description = "Advanced image input and output: EXR, 32 bit support and more"
 version = "0.2.2"
 license = {file = "LICENSE"}
 dependencies = ["torch>=1.10.0", "numpy>=1.21.0", "colour-science>=0.4.2", "Pillow>=9.0.0", "opencv-python>=4.5.0", "tifffile", "OpenImageIO>=2.4.13.0", "rich>=10.0.0"]
 
 [project.urls]
-Repository = "https://github.com/Conor-Collins/ComfyUI-CoCoTools_IO"
+Repository = "https://github.com/Conor-Collins/CoCoTools_IO"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
 PublisherId = "coco"
-DisplayName = "ComfyUI-CoCoTools_IO"
+DisplayName = "CoCoTools_IO"
 Icon = ""
