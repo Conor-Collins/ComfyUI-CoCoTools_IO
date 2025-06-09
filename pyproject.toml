@@ -1,5 +1,5 @@
 [project]
-name = "ComfyUI-CoCoTools_IO"
+name = "cocotoolsIO"
 description = "Advanced image input and output: EXR, 32 bit support and more"
 version = "0.2.2"
 license = {file = "LICENSE"}
