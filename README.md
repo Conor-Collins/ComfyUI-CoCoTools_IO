@@ -1,4 +1,4 @@
-# ComfyUI-CoCoTools_IO
+# CoCoTools_IO
 
 A set of nodes focused on advanced image I/O operations, particularly for EXR file handling.
 
