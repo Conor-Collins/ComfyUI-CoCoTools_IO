@@ -1,5 +1,5 @@
 [project]
-name = "ComfyUI-CoCoTools_IO"
+name = "cocotoolsio"
 description = "Advanced image input and output: EXR, 32 bit support and more"
 version = "0.2.2"
 license = {file = "LICENSE"}
@@ -10,6 +10,6 @@ Repository = "https://github.com/Conor-Collins/ComfyUI-CoCoTools_IO"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = "cocotoolsio"
+PublisherId = "coco"
 DisplayName = "ComfyUI-CoCoTools_IO"
 Icon = ""
