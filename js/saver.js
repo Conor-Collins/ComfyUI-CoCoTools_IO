@@ -3,8 +3,8 @@ import { app } from "../../../scripts/app.js";
 app.registerExtension({
     name: "Coco.Saver",
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        // IMPORTANT: This must match the key in NODE_CLASS_MAPPINGS
-        if (nodeData.name !== "SaverNode") {  
+        // CRITICAL: Must match NODE_CLASS_MAPPINGS key
+        if (nodeData.name !== "SaverNode") {
             return;
         }
 
@@ -14,66 +14,139 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function() {
             const me = onNodeCreated?.apply(this);
             
-            console.log("Saver node created, setting up dynamic widgets");
+            // Format specifications matching Python
+            const FORMAT_SPECS = {
+                "exr": {
+                    depths: ["16", "32"],  // EXR only supports half and full float
+                    showWidgets: ["exr_compression", "bit_depth", "save_as_grayscale"]
+                },
+                "png": {
+                    depths: ["8", "16"],  // PNG only supports integer formats
+                    showWidgets: ["bit_depth", "save_as_grayscale"]
+                },
+                "jpg": {
+                    depths: ["8"],
+                    showWidgets: ["quality"]
+                },
+                "webp": {
+                    depths: ["8"],
+                    showWidgets: ["quality"]
+                },
+                "tiff": {
+                    depths: ["8", "16", "32"],
+                    showWidgets: ["bit_depth", "save_as_grayscale"]
+                }
+            };
             
             // Get all widgets
-            const fileType = this.widgets.find(w => w.name === "file_type");
-            const bitDepth = this.widgets.find(w => w.name === "bit_depth");
-            const exrCompression = this.widgets.find(w => w.name === "exr_compression");
-            const quality = this.widgets.find(w => w.name === "quality");
-            const saveAsGrayscale = this.widgets.find(w => w.name === "save_as_grayscale");
+            const widgets = {
+                fileType: this.widgets.find(w => w.name === "file_type"),
+                bitDepth: this.widgets.find(w => w.name === "bit_depth"),
+                exrCompression: this.widgets.find(w => w.name === "exr_compression"),
+                quality: this.widgets.find(w => w.name === "quality"),
+                saveAsGrayscale: this.widgets.find(w => w.name === "save_as_grayscale")
+            };
 
-            if (!fileType) {
+            if (!widgets.fileType) {
                 console.warn("Saver: file_type widget not found");
                 return me;
             }
 
-            // Define the callback that updates widget visibility
-            const updateWidgetVisibility = () => {
-                console.log("Saver: Updating widget visibility for type:", fileType.value);
+            // Store original bit depth options
+            const allBitDepthOptions = ["8", "16", "32"];
+            
+            // Update bit depth options based on format
+            const updateBitDepthOptions = (format) => {
+                if (!widgets.bitDepth) return;
                 
-                // Hide all format-specific widgets first
-                if (bitDepth) bitDepth.hidden = true;
-                if (exrCompression) exrCompression.hidden = true;
-                if (quality) quality.hidden = true;
-                if (saveAsGrayscale) saveAsGrayscale.hidden = true;
-
-                // Show relevant widgets based on file type
-                switch (fileType.value) {
-                    case "exr":
-                        if (exrCompression) exrCompression.hidden = false;
-                        if (bitDepth) bitDepth.hidden = false;
-                        if (saveAsGrayscale) saveAsGrayscale.hidden = false;
-                        break;
-                    case "png":
-                    case "tiff":
-                        if (bitDepth) bitDepth.hidden = false;
-                        if (saveAsGrayscale) saveAsGrayscale.hidden = false;
-                        break;
-                    case "jpg":
-                    case "webp":
-                        if (quality) quality.hidden = false;
-                        break;
+                const spec = FORMAT_SPECS[format];
+                if (spec && spec.depths) {
+                    // Update widget options
+                    widgets.bitDepth.options.values = spec.depths;
+                    
+                    // If current value is not valid, reset to first valid option
+                    if (!spec.depths.includes(widgets.bitDepth.value)) {
+                        widgets.bitDepth.value = spec.depths[0];
+                        
+                        // Visual feedback - briefly highlight the change
+                        const originalColor = widgets.bitDepth.color;
+                        widgets.bitDepth.color = "#ff6b6b";
+                        setTimeout(() => {
+                            widgets.bitDepth.color = originalColor;
+                            app.canvas.setDirty(true);
+                        }, 300);
+                    }
                 }
+            };
 
-                // Update node size to accommodate the visible widgets
+            // Update widget visibility and options
+            const updateWidgets = () => {
+                const format = widgets.fileType.value;
+                const spec = FORMAT_SPECS[format];
+                
+                console.log(`Saver: Updating for format: ${format}`);
+                
+                // Hide all optional widgets
+                Object.keys(widgets).forEach(key => {
+                    if (key !== "fileType" && widgets[key]) {
+                        widgets[key].hidden = true;
+                    }
+                });
+                
+                // Show relevant widgets
+                if (spec && spec.showWidgets) {
+                    spec.showWidgets.forEach(widgetName => {
+                        const camelCaseName = widgetName.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+                        if (widgets[camelCaseName]) {
+                            widgets[camelCaseName].hidden = false;
+                        }
+                    });
+                }
+                
+                // Update bit depth options
+                updateBitDepthOptions(format);
+                
+                // Resize node
                 requestAnimationFrame(() => {
-                    this.setSize([this.size[0], this.computeSize([this.size[0], this.size[1]])[1]]);
+                    const newHeight = this.computeSize([this.size[0], this.size[1]])[1];
+                    this.setSize([this.size[0], newHeight]);
                     app.canvas.setDirty(true);
                 });
             };
 
-            // Attach the callback to the file_type widget
-            const originalCallback = fileType.callback;
-            fileType.callback = function(...args) {
-                if (originalCallback) {
-                    originalCallback.apply(this, args);
+            // Override file type callback
+            const originalFileTypeCallback = widgets.fileType.callback;
+            widgets.fileType.callback = function(...args) {
+                if (originalFileTypeCallback) {
+                    originalFileTypeCallback.apply(this, args);
                 }
-                updateWidgetVisibility();
+                updateWidgets();
             };
 
-            // Initial update with a small delay to ensure widgets are ready
-            setTimeout(updateWidgetVisibility, 1);
+            // Override bit depth callback for validation
+            if (widgets.bitDepth) {
+                const originalBitDepthCallback = widgets.bitDepth.callback;
+                widgets.bitDepth.callback = function(value) {
+                    // Validate bit depth for current format
+                    const currentFormat = widgets.fileType.value;
+                    const spec = FORMAT_SPECS[currentFormat];
+                    
+                    if (spec && !spec.depths.includes(value)) {
+                        console.warn(`Invalid bit depth ${value} for format ${currentFormat}`);
+                        // Reset to first valid option
+                        this.value = spec.depths[0];
+                        app.canvas.setDirty(true);
+                        return;
+                    }
+                    
+                    if (originalBitDepthCallback) {
+                        originalBitDepthCallback.apply(this, arguments);
+                    }
+                };
+            }
+
+            // Initial setup with delay
+            setTimeout(updateWidgets, 10);
 
             return me;
         };

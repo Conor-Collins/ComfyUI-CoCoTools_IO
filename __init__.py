@@ -29,9 +29,9 @@ NODE_CLASS_MAPPINGS.update({
 
 # Add display names for better UI presentation
 NODE_DISPLAY_NAME_MAPPINGS.update({
-    "ImageLoader": "Image Loader",
-    "LoadExr": "Load EXR", 
-    "SaverNode": "Save Image",
+    "ImageLoader": "coco Loader",
+    "LoadExr": "coco Load EXR", 
+    "SaverNode": "coco Saver",
     "LoadExrLayerByName": "Load EXR Layer by Name",
     "CryptomatteLayer": "Cryptomatte Layer",
     "ColorspaceNode": "Colorspace",
