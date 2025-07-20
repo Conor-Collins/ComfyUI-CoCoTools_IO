@@ -6,7 +6,11 @@ __pycache__/
 *.log
 *.bat
 
+*.claude
+CLAUDE.md
+.claude
 
+backup/
 ref/
 testing/
 documentation/

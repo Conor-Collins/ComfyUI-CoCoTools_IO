@@ -3,12 +3,20 @@ import torch
 import numpy as np
 import tifffile
 import folder_paths
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import OpenImageIO as oiio
 from datetime import datetime
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2 as cv
+
+# Import our preview utilities
+try:
+    from ..utils.preview_utils import generate_preview_for_comfyui
+except ImportError:
+    # Fallback if utils not available
+    def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0, full_size=False):
+        return None
 
 class saver:
     """Optimized image saver node with consistent bit depth handling"""
@@ -24,6 +32,29 @@ class saver:
     
     @classmethod
     def INPUT_TYPES(cls):
+        # Define format-specific widgets
+        format_widgets = {
+            "exr": [
+                ["bit_depth", ["16", "32"], {"default": "32"}],
+                ["exr_compression", ["none", "zip", "zips", "rle", "pxr24", "b44", "b44a", "dwaa", "dwab"], {"default": "zips"}],
+                ["save_as_grayscale", "BOOLEAN", {"default": False}]
+            ],
+            "png": [
+                ["bit_depth", ["8", "16"], {"default": "16"}],
+                ["save_as_grayscale", "BOOLEAN", {"default": False}]
+            ],
+            "tiff": [
+                ["bit_depth", ["8", "16", "32"], {"default": "16"}],
+                ["save_as_grayscale", "BOOLEAN", {"default": False}]
+            ],
+            "jpg": [
+                ["quality", "INT", {"default": 95, "min": 1, "max": 100}]
+            ],
+            "webp": [
+                ["quality", "INT", {"default": 95, "min": 1, "max": 100}]
+            ]
+        }
+        
         return {
             "required": {
                 "images": ("IMAGE",),
@@ -31,12 +62,7 @@ class saver:
                 "filename": ("STRING", {"default": "ComfyUI"}),
                 "use_versioning": ("BOOLEAN", {"default": False}),
                 "version": ("INT", {"default": 1, "min": -1, "max": 999}),
-                "file_type": (["exr", "png", "jpg", "webp", "tiff"], {"default": "png"}),
-                "bit_depth": (["8", "16", "32"], {"default": "16"}),
-                "exr_compression": (["none", "zip", "zips", "rle", "pxr24", "b44", "b44a", "dwaa", "dwab"], 
-                                  {"default": "zips"}),
-                "quality": ("INT", {"default": 95, "min": 1, "max": 100}),
-                "save_as_grayscale": ("BOOLEAN", {"default": False})
+                "file_type": (["exr", "png", "jpg", "webp", "tiff"], {"default": "png", "formats": format_widgets}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -48,6 +74,7 @@ class saver:
     FUNCTION = "save_images"
     OUTPUT_NODE = True
     CATEGORY = "COCO Tools/Savers"
+    
 
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -115,11 +142,7 @@ class saver:
     def save_exr(self, img: np.ndarray, path: str, bit_depth: int, compression: str) -> None:
         """Save EXR with proper float handling"""
         # Convert to appropriate type based on bit depth
-        if bit_depth == 8:
-            # 8-bit EXR as uint8
-            data = (img * 255).astype(np.uint8)
-            pixel_type = oiio.UINT8
-        elif bit_depth == 16:
+        if bit_depth == 16:
             data = img.astype(np.float16)
             pixel_type = oiio.HALF
         else:  # 32
@@ -148,10 +171,6 @@ class saver:
         elif bit_depth == 16:
             data = (img * 65535).astype(np.uint16)
             pixel_type = oiio.UINT16
-        elif bit_depth == 32:
-            # 32-bit PNG as float32 (preserves full range)
-            data = img.astype(np.float32)
-            pixel_type = oiio.FLOAT
         else:
             # Fallback to 8-bit for unsupported depths
             data = (img * 255).astype(np.uint8)
@@ -163,10 +182,6 @@ class saver:
         spec = oiio.ImageSpec(data.shape[1], data.shape[0], channels, pixel_type)
         spec.attribute("compression", "zip")
         spec.attribute("png:compressionLevel", 9)
-        
-        # For 32-bit float PNG, set linear color space
-        if bit_depth == 32:
-            spec.attribute("oiio:ColorSpace", "Linear")
         
         buf = oiio.ImageBuf(spec)
         buf.set_pixels(oiio.ROI(), data)
@@ -219,10 +234,23 @@ class saver:
                 return new_path
             counter += 1
 
-    def save_images(self, images, file_path, filename, file_type, bit_depth,
-                   quality=95, save_as_grayscale=False, use_versioning=True,
-                   version=1, prompt=None, extra_pnginfo=None, exr_compression="zips"):
-        """Main save function with optimized pipeline"""
+    def save_images(self, images, file_path, filename, file_type, bit_depth=None,
+                   quality=None, save_as_grayscale=None, use_versioning=True,
+                   version=1, prompt=None, extra_pnginfo=None, exr_compression=None, **kwargs):
+        """Main save function with optimized pipeline - handles missing contextual inputs"""
+        
+        # Provide format-specific defaults for missing inputs
+        if bit_depth is None:
+            bit_depth = "16" if file_type in ["exr", "png", "tiff"] else "8"
+        
+        if quality is None:
+            quality = 95  # Default for JPG/WebP
+            
+        if save_as_grayscale is None:
+            save_as_grayscale = False
+            
+        if exr_compression is None:
+            exr_compression = "zips"  # Default for EXR
         try:
             # Validate inputs
             bit_depth = int(bit_depth)
@@ -239,6 +267,9 @@ class saver:
             
             # Add version string
             version_str = f"_v{version:03d}" if use_versioning and version >= 0 else ""
+            
+            # Track saved files for preview
+            saved_files = []
             
             # Process each image
             for i, img_tensor in enumerate(images):
@@ -259,11 +290,36 @@ class saver:
                     self.save_opencv_format(img_np, out_path, quality)
                 elif file_type == "tiff":
                     self.save_tiff(img_np, out_path, bit_depth)
+                
+                # Track saved file info
+                saved_files.append({
+                    "filename": os.path.basename(out_path),
+                    "fullPath": out_path,
+                    "format": file_type,
+                    "bitDepth": bit_depth,
+                    "index": i
+                })
             
-            return {"ui": {"images": []}}
+            # Generate full resolution preview for saved images
+            preview_data = generate_preview_for_comfyui(
+                images, 
+                source_path=f"saver_{len(saved_files)}_files",
+                is_sequence=len(saved_files) > 1,
+                full_size=True
+            )
+            
+            # Return with preview and saved file info
+            result = {
+                "ui": {
+                    "images": preview_data or [],
+                    "saved_files": saved_files
+                }
+            }
+            
+            return result
             
         except Exception as e:
-            return {"ui": {"error": str(e)}}
+            raise RuntimeError(f"Saver error: {str(e)}") from e
 
 NODE_CLASS_MAPPINGS = {
     "saver": saver,

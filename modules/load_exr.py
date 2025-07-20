@@ -3,6 +3,8 @@ import logging
 import numpy as np
 import torch
 import json
+import glob
+import re
 from typing import Tuple, Dict, List, Optional, Union, Any
 
 try:
@@ -14,22 +16,44 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import modular preview utilities
+try:
+    from ..utils.preview_utils import generate_preview_for_comfyui
+except ImportError:
+    # Fallback if utils not available
+    def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0):
+        return None
+
 class load_exr:
     @classmethod
     def INPUT_TYPES(cls):
+        # Define sequence-specific widgets
+        sequence_widgets = {
+            "sequence": [
+                ["start_frame", "INT", {"default": 1001, "min": 0, "max": 999999}],
+                ["frame_count", "INT", {"default": 1, "min": 1, "max": 1000}],
+                ["frame_step", "INT", {"default": 1, "min": 1, "max": 100}]
+            ]
+        }
+        
         return {
             "required": {
                 "image_path": ("STRING", {
                     "default": "path/to/image.exr",
-                    "description": "Full path to the EXR file"
+                    "description": "Full path to the EXR file or sequence pattern (use #### for frame numbers)"
+                }),
+                "image_type": (["single_frame", "sequence"], {
+                    "default": "single_frame",
+                    "description": "Load type: single frame or sequence",
+                    "formats": sequence_widgets
                 }),
                 "normalize": ("BOOLEAN", {
-                    "default": True,
+                    "default": False,
                     "description": "Normalize image values to the 0-1 range"
                 })
             },
             "hidden": {
-                "node_id": "UNIQUE_ID",  # Used for ComfyUI node tracking
+                "node_id": "UNIQUE_ID",
                 "layer_data": "DICT"
             }
         }
@@ -41,12 +65,14 @@ class load_exr:
     FUNCTION = "load_image"
     CATEGORY = "Image/EXR"
     
+    
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")  # Always execute the node
 
-    def load_image(self, image_path: str, normalize: bool = True, 
-                   node_id: str = None, layer_data: Dict = None) -> List:
+    def load_image(self, image_path: str, image_type: str = "single_frame", normalize: bool = False, 
+                   start_frame: int = None, frame_count: int = None, frame_step: int = None,
+                   node_id: str = None, layer_data: Dict = None, **kwargs) -> List:
         """
         Load an EXR image with support for multiple layers/channel groups.
         Returns:
@@ -63,10 +89,206 @@ class load_exr:
         if not OIIO_AVAILABLE:
             raise ImportError("OpenImageIO is required for EXR loading but not available")
             
-        # Validate image path
-        if not os.path.isfile(image_path):
-            raise FileNotFoundError(f"Image not found: {image_path}")
+        try:
+            # Provide defaults for sequence parameters when missing
+            if start_frame is None:
+                start_frame = 1001
+            if frame_count is None:
+                frame_count = 1
+            if frame_step is None:
+                frame_step = 1
+                
+            # Determine loading mode based on image_type and pattern detection
+            has_sequence_pattern = self._detect_sequence_pattern(image_path)
+            
+            # Force sequence mode if image_type is "sequence" OR if pattern detected
+            is_sequence = (image_type == "sequence") or has_sequence_pattern
+            
+            if is_sequence:
+                # Load as sequence
+                return self._load_sequence(image_path, normalize, start_frame, frame_count, frame_step, node_id, layer_data)
+            else:
+                # Validate single image path
+                if not os.path.isfile(image_path):
+                    raise FileNotFoundError(f"Image not found: {image_path}")
+                # Load as single image (existing behavior)
+                return self._load_single_image(image_path, normalize, node_id, layer_data)
+            
+        except Exception as e:
+            logger.error(f"Error loading EXR file {image_path}: {str(e)}")
+            raise
+
+    def _detect_sequence_pattern(self, image_path: str) -> bool:
+        """Detect if the image_path contains a sequence pattern (####)"""
+        if not image_path or '####' not in image_path:
+            return False
         
+        # A sequence pattern is detected by the presence of ####
+        # We don't need to check if files exist here, that's handled in _load_sequence
+        return True
+
+    def _find_sequence_files(self, pattern_path: str) -> List[str]:
+        """Find all files matching the sequence pattern"""
+        # Convert #### pattern to glob pattern
+        glob_pattern = pattern_path.replace('####', '*')
+        
+        # Find all matching files
+        matching_files = glob.glob(glob_pattern)
+        
+        # Filter to only include files that match the exact pattern (4 digits)
+        regex_pattern = pattern_path.replace('####', r'(\d{4})')
+        
+        valid_files = []
+        for file_path in matching_files:
+            if re.match(regex_pattern.replace('\\', '\\\\'), file_path):
+                valid_files.append(file_path)
+        
+        return sorted(valid_files)
+
+    def _generate_frame_paths(self, pattern_path: str, start_frame: int, frame_count: int, frame_step: int) -> List[str]:
+        """Generate list of frame paths based on pattern and parameters"""
+        frame_paths = []
+        
+        for i in range(0, frame_count * frame_step, frame_step):
+            frame_number = start_frame + i
+            frame_path = pattern_path.replace('####', f'{frame_number:04d}')
+            frame_paths.append(frame_path)
+        
+        return frame_paths
+
+    def _load_sequence(self, pattern_path: str, normalize: bool, start_frame: int, frame_count: int, frame_step: int, node_id: str = None, layer_data: Dict = None) -> List:
+        """Load a sequence of EXR files and return batched tensors"""
+        logger.info(f"Loading EXR sequence: {pattern_path} (start={start_frame}, count={frame_count}, step={frame_step})")
+        
+        # Generate frame paths
+        frame_paths = self._generate_frame_paths(pattern_path, start_frame, frame_count, frame_step)
+        
+        # Check if files exist
+        existing_frames = []
+        for frame_path in frame_paths:
+            if os.path.exists(frame_path):
+                existing_frames.append(frame_path)
+            else:
+                logger.warning(f"Frame not found: {frame_path}")
+        
+        if not existing_frames:
+            raise FileNotFoundError(f"No sequence frames found for pattern: {pattern_path}")
+        
+        # Load first frame to establish structure
+        first_frame_result = self._load_single_image(existing_frames[0], normalize, node_id, layer_data)
+        
+        # Handle result format (dict if preview generated, list if not)
+        if isinstance(first_frame_result, dict):
+            first_frame_data = first_frame_result["result"]
+        else:
+            first_frame_data = first_frame_result
+        
+        # Initialize batch tensors with first frame
+        batch_rgb = first_frame_data[0]  # IMAGE
+        batch_alpha = first_frame_data[1]  # MASK
+        batch_layers = first_frame_data[3]  # LAYERS
+        batch_cryptomatte = first_frame_data[4]  # CRYPTOMATTE
+        
+        # Convert single frame tensors to batch tensors
+        batch_rgb_list = [batch_rgb]
+        batch_alpha_list = [batch_alpha]
+        batch_layers_dict = {}
+        batch_cryptomatte_dict = {}
+        
+        # Initialize layer dictionaries
+        for layer_name, layer_tensor in batch_layers.items():
+            batch_layers_dict[layer_name] = [layer_tensor]
+        
+        for crypto_name, crypto_tensor in batch_cryptomatte.items():
+            batch_cryptomatte_dict[crypto_name] = [crypto_tensor]
+        
+        # Load remaining frames
+        for frame_path in existing_frames[1:]:
+            try:
+                frame_result = self._load_single_image(frame_path, normalize, node_id, layer_data)
+                
+                # Handle result format (dict if preview generated, list if not)
+                if isinstance(frame_result, dict):
+                    frame_data = frame_result["result"]
+                else:
+                    frame_data = frame_result
+                
+                # Add to batch lists
+                batch_rgb_list.append(frame_data[0])
+                batch_alpha_list.append(frame_data[1])
+                
+                # Add layers to batch
+                frame_layers = frame_data[3]
+                for layer_name, layer_tensor in frame_layers.items():
+                    if layer_name in batch_layers_dict:
+                        batch_layers_dict[layer_name].append(layer_tensor)
+                    else:
+                        logger.warning(f"Layer '{layer_name}' not found in first frame, skipping")
+                
+                # Add cryptomatte to batch
+                frame_cryptomatte = frame_data[4]
+                for crypto_name, crypto_tensor in frame_cryptomatte.items():
+                    if crypto_name in batch_cryptomatte_dict:
+                        batch_cryptomatte_dict[crypto_name].append(crypto_tensor)
+                    else:
+                        logger.warning(f"Cryptomatte '{crypto_name}' not found in first frame, skipping")
+                        
+            except Exception as e:
+                logger.error(f"Error loading frame {frame_path}: {str(e)}")
+                # Continue with other frames
+                continue
+        
+        # Stack tensors into batches
+        final_rgb = torch.cat(batch_rgb_list, dim=0)
+        final_alpha = torch.cat(batch_alpha_list, dim=0)
+        
+        # Stack layer tensors
+        final_layers = {}
+        for layer_name, tensor_list in batch_layers_dict.items():
+            if tensor_list:
+                final_layers[layer_name] = torch.cat(tensor_list, dim=0)
+        
+        # Stack cryptomatte tensors
+        final_cryptomatte = {}
+        for crypto_name, tensor_list in batch_cryptomatte_dict.items():
+            if tensor_list:
+                final_cryptomatte[crypto_name] = torch.cat(tensor_list, dim=0)
+        
+        # Update metadata to include sequence info
+        metadata_str = first_frame_data[2]
+        metadata = json.loads(metadata_str) if metadata_str else {}
+        metadata["sequence_info"] = {
+            "is_sequence": True,
+            "pattern": pattern_path,
+            "start_frame": start_frame,
+            "frame_count": len(existing_frames),
+            "frame_step": frame_step,
+            "loaded_frames": existing_frames
+        }
+        metadata_json = json.dumps(metadata)
+        
+        # Generate preview for sequence (first frame) at full resolution
+        preview_result = generate_preview_for_comfyui(final_rgb, pattern_path, is_sequence=True, full_size=True)
+        
+        # Return same structure as single image
+        result = [
+            final_rgb,
+            final_alpha, 
+            metadata_json,
+            final_layers,
+            final_cryptomatte,
+            first_frame_data[5],  # layer names
+            first_frame_data[6]   # processed layer names
+        ]
+        
+        # Return with preview if generated
+        if preview_result:
+            return {"ui": {"images": preview_result}, "result": result}
+        else:
+            return result
+
+    def _load_single_image(self, image_path: str, normalize: bool, node_id: str = None, layer_data: Dict = None) -> List:
+        """Load a single EXR image (original functionality)"""
         try:
             # Scan the EXR metadata if not already provided
             metadata = layer_data if layer_data else self.scan_exr_metadata(image_path)
@@ -285,8 +507,17 @@ class load_exr:
             # Create a list of processed layer names that match the keys in the returned dictionaries
             processed_layer_names = self._create_processed_layer_names(layers_dict, cryptomatte_dict)
             
+            # Generate preview for ComfyUI using modular system (full resolution)
+            preview_result = generate_preview_for_comfyui(rgb_tensor, image_path, is_sequence=False, full_size=True)
+            
             # Return the results
-            return [rgb_tensor, alpha_tensor, metadata_json, layers_dict, cryptomatte_dict, layer_names, processed_layer_names]
+            result = [rgb_tensor, alpha_tensor, metadata_json, layers_dict, cryptomatte_dict, layer_names, processed_layer_names]
+            
+            # Return with preview if generated
+            if preview_result:
+                return {"ui": {"images": preview_result}, "result": result}
+            else:
+                return result
             
         except Exception as e:
             logger.error(f"Error loading EXR file {image_path}: {str(e)}")
@@ -874,6 +1105,8 @@ class load_exr:
         finally:
             if input_file:
                 input_file.close()
+
+    # Removed old preview generation method - now using modular system
 
 NODE_CLASS_MAPPINGS = {
     "load_exr": load_exr
