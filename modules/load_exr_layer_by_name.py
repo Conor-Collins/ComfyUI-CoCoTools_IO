@@ -5,6 +5,19 @@ from typing import Dict, List, Union, Any
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import debug utilities
+try:
+    from ..utils.debug_utils import debug_log, format_layer_names, format_tensor_info, DEBUG_MODE
+except ImportError:
+    # Fallback if utils not available
+    def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
+        getattr(logger, level.lower())(simple_msg)
+    def format_layer_names(layer_names, max_simple=None):
+        return ', '.join(layer_names)
+    def format_tensor_info(tensor_shape, tensor_dtype, name=""):
+        return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
+    DEBUG_MODE = "simple"
+
 class load_exr_layer_by_name:
     """
     The Load EXR Layer by Name node allows selecting a specific layer from an EXR layer dictionary.
@@ -15,11 +28,12 @@ class load_exr_layer_by_name:
     available_layers = ["none"]
     
     def __init__(self):
-        logger.info("load_exr_layer_by_name class initialized")
+        debug_log(logger, "info", "Layer selector initialized", "load_exr_layer_by_name class initialized")
 
     @classmethod
     def INPUT_TYPES(cls):
-        logger.info(f"INPUT_TYPES called - available layers: {cls.available_layers}")
+        debug_log(logger, "info", f"Available layers: {len(cls.available_layers)}", 
+                 f"INPUT_TYPES called - available layers: {cls.available_layers}")
         return {
             "required": {
                 "layers": ("LAYERS",),
@@ -56,13 +70,15 @@ class load_exr_layer_by_name:
         """
         # Check if we have any layers at all
         if not layers or len(layers) == 0:
-            logger.warning("No layers available in the input")
+            debug_log(logger, "warning", "No layers available", "No layers available in the input")
             return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
             
         # Log the available layers for debugging
-        logger.info(f"Available layers: {list(layers.keys())}")
-        for layer_key, layer_tensor in layers.items():
-            logger.info(f"Layer '{layer_key}' has shape {layer_tensor.shape} and type {layer_tensor.dtype}")
+        debug_log(logger, "info", f"Found {len(layers)} layers: {format_layer_names(list(layers.keys()))}", 
+                 f"Available layers: {list(layers.keys())}")
+        if DEBUG_MODE == "verbose":
+            for layer_key, layer_tensor in layers.items():
+                debug_log(logger, "info", "", f"Layer '{layer_key}' has shape {layer_tensor.shape} and type {layer_tensor.dtype}")
         
         # Update the class variable with available layer names
         self.__class__.available_layers = ["none"] + sorted(list(layers.keys()))
@@ -73,7 +89,8 @@ class load_exr_layer_by_name:
             case_insensitive_matches = [l for l in layers.keys() if l.lower() == layer_name.lower()]
             if case_insensitive_matches:
                 layer_name = case_insensitive_matches[0]
-                logger.info(f"Layer name '{layer_name}' found with different case: '{layer_name}'")
+                debug_log(logger, "info", "Found layer with different case", 
+                         f"Layer name '{layer_name}' found with different case: '{layer_name}'")
             else:
                 # Try to find a partial match
                 matches = [l for l in layers.keys() if layer_name.lower() in l.lower()]
@@ -81,7 +98,8 @@ class load_exr_layer_by_name:
                     # Sort matches by length to find the closest match
                     matches.sort(key=len)
                     layer_name = matches[0]
-                    logger.info(f"Layer name '{layer_name}' not found exactly, using closest match: '{layer_name}'")
+                    debug_log(logger, "info", "Using closest layer match", 
+                             f"Layer name '{layer_name}' not found exactly, using closest match: '{layer_name}'")
                 else:
                     # Try to match hierarchical names (e.g., "CITY SCENE.AO" when user enters "AO")
                     hierarchical_matches = []
@@ -94,35 +112,40 @@ class load_exr_layer_by_name:
                     
                     if hierarchical_matches:
                         layer_name = hierarchical_matches[0]
-                        logger.info(f"Found hierarchical layer match: '{layer_name}'")
+                        debug_log(logger, "info", "Found hierarchical match", 
+                                 f"Found hierarchical layer match: '{layer_name}'")
                     else:
                         # Try to match subimage names (e.g., "AO" for a subimage)
                         subimage_matches = [l for l in layers.keys() if l.split('.')[0].lower() == layer_name.lower()]
                         if subimage_matches:
                             layer_name = subimage_matches[0]
-                            logger.info(f"Found subimage match: '{layer_name}'")
+                            debug_log(logger, "info", "Found subimage match", 
+                                     f"Found subimage match: '{layer_name}'")
                         else:
-                            logger.warning(f"Layer '{layer_name}' not found and no close matches")
+                            debug_log(logger, "warning", "Layer not found", 
+                                     f"Layer '{layer_name}' not found and no close matches")
                             # Use the first available layer as fallback
                             if len(layers) > 0:
                                 layer_name = list(layers.keys())[0]
-                                logger.info(f"Using first available layer: {layer_name}")
+                                debug_log(logger, "info", "Using first available layer", 
+                                         f"Using first available layer: {layer_name}")
                             else:
                                 return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
         
         # If no layer is specified or "none" is selected, return empty tensors
         if not layer_name or layer_name == "none":
-            logger.warning("No layer specified, returning empty tensors")
+            debug_log(logger, "warning", "No layer specified", "No layer specified, returning empty tensors")
             return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
         
         # Get the requested layer
         layer_tensor = layers[layer_name]
         
-        # Log the layer tensor shape and type
-        logger.info(f"Processing layer '{layer_name}' with shape {layer_tensor.shape} and type {layer_tensor.dtype}")
+        # Log the layer processing
+        debug_log(logger, "info", f"Processing layer '{layer_name}'", 
+                 f"Processing layer '{layer_name}' with shape {layer_tensor.shape} and type {layer_tensor.dtype}")
         
         # Debug: Print the requested layer name
-        logger.info(f"Requested layer: '{layer_name}'")
+        debug_log(logger, "info", "", f"Requested layer: '{layer_name}'")
         
         # Special handling for alpha layers only (not depth or Z)
         is_alpha_layer = 'alpha' in layer_name.lower()
@@ -134,12 +157,12 @@ class load_exr_layer_by_name:
                 # Convert RGB to mask by taking the mean across channels
                 mask_output = layer_tensor.mean(dim=3, keepdim=False)
                 image_output = None
-                logger.info(f"Converted RGB tensor to mask: shape={mask_output.shape}")
+                debug_log(logger, "info", "Converted to mask", f"Converted RGB tensor to mask: shape={mask_output.shape}")
             else:
                 # Keep as an image
                 image_output = layer_tensor
                 mask_output = None
-                logger.info(f"Using RGB tensor as image: shape={image_output.shape}")
+                debug_log(logger, "info", "Using as RGB image", f"Using RGB tensor as image: shape={image_output.shape}")
         elif len(layer_tensor.shape) == 3:
             # It's a single-channel tensor [1, H, W]
             # Special handling for depth and Z channels
@@ -149,28 +172,28 @@ class load_exr_layer_by_name:
                 # Convert to RGB by replicating to 3 channels
                 image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
                 mask_output = None
-                logger.info(f"Converted single-channel tensor to RGB: shape={image_output.shape}")
+                debug_log(logger, "info", "Converted to RGB", f"Converted single-channel tensor to RGB: shape={image_output.shape}")
             elif is_depth_or_z:
                 # For depth and Z channels, return as image by default
                 image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
                 mask_output = None
-                logger.info(f"Converted depth/Z tensor to RGB: shape={image_output.shape}")
+                debug_log(logger, "info", "Converted depth to RGB", f"Converted depth/Z tensor to RGB: shape={image_output.shape}")
             elif 'alpha' in layer_name.lower():
                 # For alpha channels, return as mask
                 mask_output = layer_tensor
                 image_output = None
-                logger.info(f"Using alpha tensor as mask: shape={mask_output.shape}")
+                debug_log(logger, "info", "Using alpha as mask", f"Using alpha tensor as mask: shape={mask_output.shape}")
             else:
                 # For other single-channel data, use the conversion setting
                 if conversion == "To Mask":
                     mask_output = layer_tensor
                     image_output = None
-                    logger.info(f"Using single-channel tensor as mask: shape={mask_output.shape}")
+                    debug_log(logger, "info", "Using as mask", f"Using single-channel tensor as mask: shape={mask_output.shape}")
                 else:
                     # Default to RGB for Auto mode for non-alpha channels
                     image_output = torch.cat([layer_tensor.unsqueeze(3)] * 3, dim=3)
                     mask_output = None
-                    logger.info(f"Using single-channel tensor as RGB (Auto): shape={image_output.shape}")
+                    debug_log(logger, "info", "Using as RGB (Auto)", f"Using single-channel tensor as RGB (Auto): shape={image_output.shape}")
         # Special case for empty tensors or tensors with shape [1, 1, 1, 3]
         elif len(layer_tensor.shape) == 4 and layer_tensor.shape[1] == 1 and layer_tensor.shape[2] == 1:
             # This is likely an empty tensor or a placeholder
@@ -196,7 +219,8 @@ class load_exr_layer_by_name:
                 mask_output = None
         else:
             # Unknown format, log error
-            logger.error(f"Layer '{layer_name}' has an unsupported tensor shape: {layer_tensor.shape}")
+            debug_log(logger, "error", "Unsupported tensor shape", 
+                     f"Layer '{layer_name}' has an unsupported tensor shape: {layer_tensor.shape}")
             return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
         
         # Set placeholder for any None outputs
@@ -245,7 +269,7 @@ class shamble_cryptomatte(load_exr_layer_by_name):
         """
         # Check if we have any layers at all
         if not cryptomatte or len(cryptomatte) == 0:
-            logger.warning("No cryptomatte layers available in the input")
+            debug_log(logger, "warning", "No cryptomatte layers available", "No cryptomatte layers available in the input")
             return [torch.zeros((1, 1, 1, 3))]
         
         # Update the class variable with available cryptomatte layer names
@@ -257,7 +281,8 @@ class shamble_cryptomatte(load_exr_layer_by_name):
             case_insensitive_matches = [l for l in cryptomatte.keys() if l.lower() == layer_name.lower()]
             if case_insensitive_matches:
                 layer_name = case_insensitive_matches[0]
-                logger.info(f"Cryptomatte layer name '{layer_name}' found with different case: '{layer_name}'")
+                debug_log(logger, "info", "Found cryptomatte with different case", 
+                         f"Cryptomatte layer name '{layer_name}' found with different case: '{layer_name}'")
             else:
                 # Try to find a partial match
                 matches = [l for l in cryptomatte.keys() if layer_name.lower() in l.lower()]
@@ -265,7 +290,8 @@ class shamble_cryptomatte(load_exr_layer_by_name):
                     # Sort matches by length to find the closest match
                     matches.sort(key=len)
                     layer_name = matches[0]
-                    logger.info(f"Cryptomatte layer name '{layer_name}' not found exactly, using closest match: '{layer_name}'")
+                    debug_log(logger, "info", "Using closest cryptomatte match", 
+                             f"Cryptomatte layer name '{layer_name}' not found exactly, using closest match: '{layer_name}'")
                 else:
                     # Try to match hierarchical names (e.g., "CITY SCENE.CryptoAsset00" when user enters "CryptoAsset")
                     hierarchical_matches = []
@@ -278,19 +304,22 @@ class shamble_cryptomatte(load_exr_layer_by_name):
                     
                     if hierarchical_matches:
                         layer_name = hierarchical_matches[0]
-                        logger.info(f"Found hierarchical cryptomatte layer match: '{layer_name}'")
+                        debug_log(logger, "info", "Found hierarchical cryptomatte match", 
+                                 f"Found hierarchical cryptomatte layer match: '{layer_name}'")
                     else:
-                        logger.warning(f"Cryptomatte layer '{layer_name}' not found and no close matches")
+                        debug_log(logger, "warning", "Cryptomatte layer not found", 
+                                 f"Cryptomatte layer '{layer_name}' not found and no close matches")
                         # Use the first available layer as fallback
                         if len(cryptomatte) > 0:
                             layer_name = list(cryptomatte.keys())[0]
-                            logger.info(f"Using first available cryptomatte layer: {layer_name}")
+                            debug_log(logger, "info", "Using first available cryptomatte", 
+                                     f"Using first available cryptomatte layer: {layer_name}")
                         else:
                             return [torch.zeros((1, 1, 1, 3))]
         
         # If no layer is specified or "none" is selected, return an empty tensor
         if not layer_name or layer_name == "none":
-            logger.warning("No cryptomatte layer specified, returning empty tensor")
+            debug_log(logger, "warning", "No cryptomatte layer specified", "No cryptomatte layer specified, returning empty tensor")
             return [torch.zeros((1, 1, 1, 3))]
         
         # Return the requested cryptomatte layer

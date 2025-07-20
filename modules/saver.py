@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import tifffile
 import folder_paths
+import logging
 from typing import Dict, Tuple, Optional, List
 import OpenImageIO as oiio
 from datetime import datetime
@@ -10,11 +11,18 @@ from datetime import datetime
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2 as cv
 
-# Import our preview utilities
+logger = logging.getLogger(__name__)
+
+# Import debug utilities and preview utilities
 try:
+    from ..utils.debug_utils import debug_log, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
 except ImportError:
     # Fallback if utils not available
+    def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
+        getattr(logger, level.lower())(simple_msg)
+    def format_tensor_info(tensor_shape, tensor_dtype, name=""):
+        return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0, full_size=False):
         return None
 
@@ -257,6 +265,10 @@ class saver:
             file_type = file_type.lower()
             bit_depth = self.validate_bit_depth(file_type, bit_depth)
             
+            # Log save operation
+            debug_log(logger, "info", f"Saving {len(images)} image(s) as {file_type.upper()}", 
+                     f"Saving {len(images)} image(s) as {file_type.upper()} {bit_depth}-bit to {filename}")
+            
             # Build base path
             if file_path:
                 full_path = os.path.join(self.output_dir, file_path) if not os.path.isabs(file_path) else file_path
@@ -308,6 +320,10 @@ class saver:
                 full_size=True
             )
             
+            # Log completion
+            debug_log(logger, "info", f"Saved {len(saved_files)} files successfully", 
+                     f"Successfully saved {len(saved_files)} files: {[f['filename'] for f in saved_files]}")
+            
             # Return with preview and saved file info
             result = {
                 "ui": {
@@ -319,6 +335,7 @@ class saver:
             return result
             
         except Exception as e:
+            debug_log(logger, "error", "Save operation failed", f"Saver error: {str(e)}")
             raise RuntimeError(f"Saver error: {str(e)}") from e
 
 NODE_CLASS_MAPPINGS = {

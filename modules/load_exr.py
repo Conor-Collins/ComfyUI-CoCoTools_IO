@@ -16,11 +16,18 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import modular preview utilities
+# Import debug utilities and modular preview utilities
 try:
+    from ..utils.debug_utils import debug_log, format_layer_names, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
 except ImportError:
     # Fallback if utils not available
+    def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
+        getattr(logger, level.lower())(simple_msg)
+    def format_layer_names(layer_names, max_simple=None):
+        return ', '.join(layer_names)
+    def format_tensor_info(tensor_shape, tensor_dtype, name=""):
+        return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0):
         return None
 
@@ -115,7 +122,7 @@ class load_exr:
                 return self._load_single_image(image_path, normalize, node_id, layer_data)
             
         except Exception as e:
-            logger.error(f"Error loading EXR file {image_path}: {str(e)}")
+            debug_log(logger, "error", "Error loading EXR", f"Error loading EXR file {image_path}: {str(e)}")
             raise
 
     def _detect_sequence_pattern(self, image_path: str) -> bool:
@@ -158,7 +165,8 @@ class load_exr:
 
     def _load_sequence(self, pattern_path: str, normalize: bool, start_frame: int, frame_count: int, frame_step: int, node_id: str = None, layer_data: Dict = None) -> List:
         """Load a sequence of EXR files and return batched tensors"""
-        logger.info(f"Loading EXR sequence: {pattern_path} (start={start_frame}, count={frame_count}, step={frame_step})")
+        debug_log(logger, "info", f"Loading EXR sequence: {frame_count} frames", 
+                 f"Loading EXR sequence: {pattern_path} (start={start_frame}, count={frame_count}, step={frame_step})")
         
         # Generate frame paths
         frame_paths = self._generate_frame_paths(pattern_path, start_frame, frame_count, frame_step)
@@ -169,7 +177,7 @@ class load_exr:
             if os.path.exists(frame_path):
                 existing_frames.append(frame_path)
             else:
-                logger.warning(f"Frame not found: {frame_path}")
+                debug_log(logger, "warning", "Frame not found", f"Frame not found: {frame_path}")
         
         if not existing_frames:
             raise FileNotFoundError(f"No sequence frames found for pattern: {pattern_path}")
@@ -223,7 +231,8 @@ class load_exr:
                     if layer_name in batch_layers_dict:
                         batch_layers_dict[layer_name].append(layer_tensor)
                     else:
-                        logger.warning(f"Layer '{layer_name}' not found in first frame, skipping")
+                        debug_log(logger, "warning", "Layer not found in first frame", 
+                                  f"Layer '{layer_name}' not found in first frame, skipping")
                 
                 # Add cryptomatte to batch
                 frame_cryptomatte = frame_data[4]
@@ -231,10 +240,11 @@ class load_exr:
                     if crypto_name in batch_cryptomatte_dict:
                         batch_cryptomatte_dict[crypto_name].append(crypto_tensor)
                     else:
-                        logger.warning(f"Cryptomatte '{crypto_name}' not found in first frame, skipping")
+                        debug_log(logger, "warning", "Cryptomatte not found in first frame", 
+                                  f"Cryptomatte '{crypto_name}' not found in first frame, skipping")
                         
             except Exception as e:
-                logger.error(f"Error loading frame {frame_path}: {str(e)}")
+                debug_log(logger, "error", "Error loading frame", f"Error loading frame {frame_path}: {str(e)}")
                 # Continue with other frames
                 continue
         
@@ -309,7 +319,7 @@ class load_exr:
             for subimage_idx, subimage_info in enumerate(metadata["subimages"]):
                 # Get subimage data
                 if subimage_idx not in all_subimage_data:
-                    logger.warning(f"No data found for subimage {subimage_idx}")
+                    debug_log(logger, "warning", "No subimage data", f"No data found for subimage {subimage_idx}")
                     continue
                 
                 subimage_data = all_subimage_data[subimage_idx]
@@ -497,9 +507,11 @@ class load_exr:
             metadata_json = json.dumps(metadata)
             
             # Log the available layers
-            logger.info(f"Available EXR layers: {list(layers_dict.keys())}")
+            debug_log(logger, "info", f"Loaded {len(layers_dict)} layers: {format_layer_names(list(layers_dict.keys()))}", 
+                     f"Available EXR layers: {list(layers_dict.keys())}")
             if cryptomatte_dict:
-                logger.info(f"Available cryptomatte layers: {list(cryptomatte_dict.keys())}")
+                debug_log(logger, "info", f"Loaded {len(cryptomatte_dict)} cryptomatte layers", 
+                         f"Available cryptomatte layers: {list(cryptomatte_dict.keys())}")
             
             # Create a readable list of channel names from all subimages
             layer_names = all_channel_names
@@ -520,7 +532,7 @@ class load_exr:
                 return result
             
         except Exception as e:
-            logger.error(f"Error loading EXR file {image_path}: {str(e)}")
+            debug_log(logger, "error", "Error loading EXR", f"Error loading EXR file {image_path}: {str(e)}")
             raise
 
     def _is_cryptomatte_layer(self, group_name: str) -> bool:
@@ -607,7 +619,7 @@ class load_exr:
                 b_idx = channel_names.index(b_channel)
             except ValueError:
                 # If we can't find the channels, log a warning and return
-                logger.warning(f"Could not find RGB channels for {group_name}")
+                debug_log(logger, "warning", "Missing RGB channels", f"Could not find RGB channels for {group_name}")
                 return
             
             # Check if there's also an alpha component
@@ -656,7 +668,7 @@ class load_exr:
                 layers_dict[alpha_layer_name] = alpha_tensor_layer
         except ValueError as e:
             # Handle missing channels gracefully
-            logger.warning(f"Error processing RGB layer {group_name}: {str(e)}")
+            debug_log(logger, "warning", "Error processing RGB layer", f"Error processing RGB layer {group_name}: {str(e)}")
 
     def _process_xyz_type_layer(self, group_name, x_suffix, y_suffix, z_suffix, 
                                channel_names, all_data, normalize, layers_dict):
@@ -674,7 +686,7 @@ class load_exr:
                 z_idx = channel_names.index(z_channel)
             except ValueError:
                 # If we can't find the channels, log a warning and return
-                logger.warning(f"Could not find XYZ channels for {group_name}")
+                debug_log(logger, "warning", "Missing XYZ channels", f"Could not find XYZ channels for {group_name}")
                 return
             
             # Stack XYZ channels as RGB
@@ -697,7 +709,7 @@ class load_exr:
             # Store in the layers dictionary (vector data won't be cryptomatte)
             layers_dict[group_name] = xyz_tensor
         except ValueError as e:
-            logger.warning(f"Error processing XYZ layer {group_name}: {str(e)}")
+            debug_log(logger, "warning", "Error processing XYZ layer", f"Error processing XYZ layer {group_name}: {str(e)}")
 
     def _process_single_channel(self, group_name, suffixes, group_indices, 
                                channel_names, all_data, normalize, layers_dict):
@@ -730,7 +742,8 @@ class load_exr:
             # Special case for Z channel
             if group_name == 'Z':
                 is_mask_type = True
-                logger.info(f"Processing Z channel as mask: shape={channel_array.shape}")
+                debug_log(logger, "info", "Processing Z channel as mask", 
+                         f"Processing Z channel as mask: shape={channel_array.shape}")
             
             if is_mask_type:
                 # Store as a mask tensor
@@ -742,9 +755,10 @@ class load_exr:
                         mask_tensor = (mask_tensor - mask_tensor.min()) / mask_range
                 
                 # Log mask tensor stats
-                logger.info(f"Created mask tensor for {group_name}: shape={mask_tensor.shape}, " +
-                           f"min={mask_tensor.min().item():.6f}, max={mask_tensor.max().item():.6f}, " +
-                           f"mean={mask_tensor.mean().item():.6f}")
+                debug_log(logger, "info", f"Created mask: {format_tensor_info(mask_tensor.shape, mask_tensor.dtype, group_name)}", 
+                         f"Created mask tensor for {group_name}: shape={mask_tensor.shape}, " +
+                         f"min={mask_tensor.min().item():.6f}, max={mask_tensor.max().item():.6f}, " +
+                         f"mean={mask_tensor.mean().item():.6f}")
                 
                 layers_dict[group_name] = mask_tensor
             else:
@@ -760,9 +774,10 @@ class load_exr:
                         channel_tensor = (channel_tensor - channel_tensor.min()) / channel_range
                 
                 # Log RGB tensor stats
-                logger.info(f"Created RGB tensor for {group_name}: shape={channel_tensor.shape}, " +
-                           f"min={channel_tensor.min().item():.6f}, max={channel_tensor.max().item():.6f}, " +
-                           f"mean={channel_tensor.mean().item():.6f}")
+                debug_log(logger, "info", f"Created RGB: {format_tensor_info(channel_tensor.shape, channel_tensor.dtype, group_name)}", 
+                         f"Created RGB tensor for {group_name}: shape={channel_tensor.shape}, " +
+                         f"min={channel_tensor.min().item():.6f}, max={channel_tensor.max().item():.6f}, " +
+                         f"mean={channel_tensor.mean().item():.6f}")
                 
                 layers_dict[group_name] = channel_tensor
 
@@ -1012,7 +1027,8 @@ class load_exr:
                 # Read pixel data for current subimage
                 pixels = input_file.read_image()
                 if pixels is None:
-                    logger.warning(f"Failed to read image data for subimage {current_subimage} from {image_path}")
+                    debug_log(logger, "warning", "Failed to read subimage", 
+                             f"Failed to read image data for subimage {current_subimage} from {image_path}")
                 else:
                     # Convert to numpy array with correct shape
                     all_subimage_data[current_subimage] = np.array(pixels, dtype=np.float32).reshape(height, width, channels)
@@ -1099,7 +1115,7 @@ class load_exr:
             return metadata
             
         except Exception as e:
-            logger.error(f"Error scanning EXR metadata from {image_path}: {str(e)}")
+            debug_log(logger, "error", "Error scanning EXR metadata", f"Error scanning EXR metadata from {image_path}: {str(e)}")
             raise
             
         finally:
