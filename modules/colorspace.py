@@ -4,6 +4,25 @@ import colour
 import logging
 from typing import Tuple
 
+# Import batch processing utilities
+try:
+    from ..utils.batch_utils import BatchProcessor, log_batch_processing
+except ImportError:
+    # Fallback if utils not available
+    class BatchProcessor:
+        @staticmethod
+        def validate_batch_tensor(tensor, expected_dims=4, tensor_name="input"):
+            return tensor.shape
+        @staticmethod
+        def reshape_for_processing(tensor, preserve_alpha=True):
+            img_np = tensor.cpu().numpy()
+            return img_np.reshape(-1, img_np.shape[-1]), None, img_np.shape
+        @staticmethod  
+        def reshape_from_processing(processed_rgb, alpha_channel, original_shape, target_device):
+            return torch.from_numpy(processed_rgb.reshape(original_shape)).to(target_device)
+    def log_batch_processing(tensor, operation, name="tensor"):
+        pass
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -187,8 +206,8 @@ class colorspace:
         Returns:
             Tuple containing the converted images as torch tensor
         """
-        logger.info(f"Converting from '{from_colorspace}' to '{to_colorspace}'")
-        logger.info(f"Input tensor shape: {images.shape}, device: {images.device}")
+        # Log batch processing info
+        log_batch_processing(images, f"Converting from '{from_colorspace}' to '{to_colorspace}'", "input")
         
         # If source and target are the same, return original
         if from_colorspace == to_colorspace:
@@ -203,6 +222,7 @@ class colorspace:
         if np.isnan(img_np).any() or np.isinf(img_np).any():
             logger.warning("Input contains NaN/Inf values, cleaning...")
             img_np = np.nan_to_num(img_np, nan=0.0, posinf=1.0, neginf=0.0)
+            images = torch.from_numpy(img_np).to(images.device)
         
         try:
             # Handle special cases first
@@ -234,37 +254,16 @@ class colorspace:
                 if from_cs == to_cs:
                     logger.info("Same underlying colorspace, skipping conversion")
                 else:
-                    # Reshape for colour-science (needs [..., 3] shape)
-                    original_shape = working_img.shape
-                    if len(original_shape) == 4:  # [B, H, W, C]
-                        # Reshape to [B*H*W, C] for processing
-                        working_img = working_img.reshape(-1, original_shape[-1])
-                    
-                    # Handle alpha channel if present (common in EXR files)
-                    has_alpha = working_img.shape[-1] == 4
-                    alpha_channel = None
-                    
-                    if has_alpha:
-                        # Store alpha channel for later
-                        alpha_channel = working_img[..., 3:4]
-                        # Process only RGB channels
-                        working_img = working_img[..., :3]
-                    # Ensure we have 3 channels for other cases
-                    elif working_img.shape[-1] != 3:
-                        logger.warning(f"Expected 3 channels, got {working_img.shape[-1]}")
-                        if working_img.shape[-1] == 1:
-                            working_img = np.repeat(working_img, 3, axis=-1)
-                        elif working_img.shape[-1] > 3:
-                            working_img = working_img[..., :3]
-                        else:
-                            # Pad with zeros
-                            padding = np.zeros(working_img.shape[:-1] + (3 - working_img.shape[-1],))
-                            working_img = np.concatenate([working_img, padding], axis=-1)
+                    # Use batch processing utilities for reshaping
+                    working_tensor = torch.from_numpy(working_img)
+                    rgb_data, alpha_channel, original_shape = BatchProcessor.reshape_for_processing(
+                        working_tensor, preserve_alpha=True
+                    )
                     
                     # Apply the colorspace conversion
                     try:
-                        working_img = colour.RGB_to_RGB(
-                            working_img,
+                        converted_rgb = colour.RGB_to_RGB(
+                            rgb_data,
                             input_colourspace=from_cs,
                             output_colourspace=to_cs,
                             apply_cctf_decoding=False,  # We handle encoding separately
@@ -275,8 +274,8 @@ class colorspace:
                         logger.error(f"Colour-science conversion failed: {e}")
                         # Try with chromatic adaptation
                         try:
-                            working_img = colour.RGB_to_RGB(
-                                working_img,
+                            converted_rgb = colour.RGB_to_RGB(
+                                rgb_data,
                                 input_colourspace=from_cs,
                                 output_colourspace=to_cs,
                                 apply_cctf_decoding=False,
@@ -289,16 +288,11 @@ class colorspace:
                             # Return original image
                             return (images,)
                     
-                    # Reshape back to original shape for RGB channels
-                    working_img = working_img.reshape(original_shape[0], original_shape[1], original_shape[2], 3)
-                    
-                    # Reattach alpha channel if it was present
-                    if has_alpha and alpha_channel is not None:
-                        # Reshape alpha channel back to original dimensions
-                        alpha_reshaped = alpha_channel.reshape(original_shape[0], original_shape[1], original_shape[2], 1)
-                        # Concatenate RGB and alpha
-                        working_img = np.concatenate([working_img, alpha_reshaped], axis=-1)
-                        logger.info(f"Reattached alpha channel, new shape: {working_img.shape}")
+                    # Use batch processing utilities to reshape back
+                    working_tensor = BatchProcessor.reshape_from_processing(
+                        converted_rgb, alpha_channel, original_shape, images.device
+                    )
+                    working_img = working_tensor.cpu().numpy()
             
             # Step 3: Encode output if needed
             if self._is_encoded_colorspace(to_colorspace):

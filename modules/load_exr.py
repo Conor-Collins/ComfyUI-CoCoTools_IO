@@ -16,10 +16,11 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import debug utilities and modular preview utilities
+# Import debug utilities, preview utilities, and sequence utilities
 try:
     from ..utils.debug_utils import debug_log, format_layer_names, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
+    from ..utils.sequence_utils import SequenceHandler, DynamicUIHelper
 except ImportError:
     # Fallback if utils not available
     def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
@@ -30,18 +31,40 @@ except ImportError:
         return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0):
         return None
+    
+    # Minimal fallback classes - should not be reached if utils are properly installed
+    class SequenceHandler:
+        @staticmethod
+        def detect_sequence_pattern(path): 
+            return '####' in path if path else False
+        @staticmethod
+        def validate_sequence_parameters(start, count, step): 
+            return (start if start is not None else 1, 
+                    count if count is not None else 10, 
+                    step if step is not None else 1)
+        @staticmethod
+        def find_sequence_files(pattern_path):
+            raise NotImplementedError("SequenceHandler.find_sequence_files not available - utils not imported")
+        @staticmethod
+        def extract_frame_numbers(files):
+            raise NotImplementedError("SequenceHandler.extract_frame_numbers not available - utils not imported")
+        @staticmethod
+        def select_sequence_frames(frames, start, count, step, strict_count=True):
+            raise NotImplementedError("SequenceHandler.select_sequence_frames not available - utils not imported")
+        @staticmethod
+        def generate_frame_paths(pattern, start, count, step):
+            raise NotImplementedError("SequenceHandler.generate_frame_paths not available - utils not imported")
+    
+    class DynamicUIHelper:
+        @staticmethod
+        def create_sequence_widgets(): 
+            return {"sequence": [["start_frame", "INT", {"default": 1}], ["frame_count", "INT", {"default": 10}], ["frame_step", "INT", {"default": 1}]]}
 
 class load_exr:
     @classmethod
     def INPUT_TYPES(cls):
-        # Define sequence-specific widgets
-        sequence_widgets = {
-            "sequence": [
-                ["start_frame", "INT", {"default": 1001, "min": 0, "max": 999999}],
-                ["frame_count", "INT", {"default": 1, "min": 1, "max": 1000}],
-                ["frame_step", "INT", {"default": 1, "min": 1, "max": 100}]
-            ]
-        }
+        # Use shared sequence widgets
+        sequence_widgets = DynamicUIHelper.create_sequence_widgets()
         
         return {
             "required": {
@@ -97,16 +120,13 @@ class load_exr:
             raise ImportError("OpenImageIO is required for EXR loading but not available")
             
         try:
-            # Provide defaults for sequence parameters when missing
-            if start_frame is None:
-                start_frame = 1001
-            if frame_count is None:
-                frame_count = 1
-            if frame_step is None:
-                frame_step = 1
+            # Validate and provide defaults for sequence parameters
+            start_frame, frame_count, frame_step = SequenceHandler.validate_sequence_parameters(
+                start_frame, frame_count, frame_step
+            )
                 
             # Determine loading mode based on image_type and pattern detection
-            has_sequence_pattern = self._detect_sequence_pattern(image_path)
+            has_sequence_pattern = SequenceHandler.detect_sequence_pattern(image_path)
             
             # Force sequence mode if image_type is "sequence" OR if pattern detected
             is_sequence = (image_type == "sequence") or has_sequence_pattern
@@ -125,62 +145,216 @@ class load_exr:
             debug_log(logger, "error", "Error loading EXR", f"Error loading EXR file {image_path}: {str(e)}")
             raise
 
-    def _detect_sequence_pattern(self, image_path: str) -> bool:
-        """Detect if the image_path contains a sequence pattern (####)"""
-        if not image_path or '####' not in image_path:
-            return False
-        
-        # A sequence pattern is detected by the presence of ####
-        # We don't need to check if files exist here, that's handled in _load_sequence
-        return True
-
-    def _find_sequence_files(self, pattern_path: str) -> List[str]:
-        """Find all files matching the sequence pattern"""
-        # Convert #### pattern to glob pattern
-        glob_pattern = pattern_path.replace('####', '*')
-        
-        # Find all matching files
-        matching_files = glob.glob(glob_pattern)
-        
-        # Filter to only include files that match the exact pattern (4 digits)
-        regex_pattern = pattern_path.replace('####', r'(\d{4})')
-        
-        valid_files = []
-        for file_path in matching_files:
-            if re.match(regex_pattern.replace('\\', '\\\\'), file_path):
-                valid_files.append(file_path)
-        
-        return sorted(valid_files)
-
-    def _generate_frame_paths(self, pattern_path: str, start_frame: int, frame_count: int, frame_step: int) -> List[str]:
-        """Generate list of frame paths based on pattern and parameters"""
-        frame_paths = []
-        
-        for i in range(0, frame_count * frame_step, frame_step):
-            frame_number = start_frame + i
-            frame_path = pattern_path.replace('####', f'{frame_number:04d}')
-            frame_paths.append(frame_path)
-        
-        return frame_paths
-
     def _load_sequence(self, pattern_path: str, normalize: bool, start_frame: int, frame_count: int, frame_step: int, node_id: str = None, layer_data: Dict = None) -> List:
         """Load a sequence of EXR files and return batched tensors"""
         debug_log(logger, "info", f"Loading EXR sequence: {frame_count} frames", 
                  f"Loading EXR sequence: {pattern_path} (start={start_frame}, count={frame_count}, step={frame_step})")
         
-        # Generate frame paths
-        frame_paths = self._generate_frame_paths(pattern_path, start_frame, frame_count, frame_step)
-        
-        # Check if files exist
-        existing_frames = []
-        for frame_path in frame_paths:
-            if os.path.exists(frame_path):
-                existing_frames.append(frame_path)
+        # Use shared sequence utilities to find and select frames  
+        try:
+            existing_sequence_files = SequenceHandler.find_sequence_files(pattern_path)
+            debug_log(logger, "info", f"Using SequenceHandler: found {len(existing_sequence_files)} files",
+                     f"SequenceHandler found {len(existing_sequence_files)} files for pattern: {pattern_path}")
+        except AttributeError:
+            # Fallback if shared utilities not available
+            debug_log(logger, "warning", "Using fallback sequence detection",
+                     f"SequenceHandler not available, using fallback for pattern: {pattern_path}")
+            import glob
+            glob_pattern = pattern_path.replace('####', '*')
+            matching_files = glob.glob(glob_pattern)
+            debug_log(logger, "info", f"Glob found {len(matching_files)} potential matches",
+                     f"Glob pattern '{glob_pattern}' found {len(matching_files)} files: {matching_files[:5]}")
+            
+            # Create regex pattern with better cross-platform support
+            escaped_pattern = re.escape(pattern_path)
+            # Replace escaped #### with regex for 4 digits - handle both Windows and Unix escaping
+            if '\\\\#\\\\#\\\\#\\\\#' in escaped_pattern:
+                pattern_for_regex = escaped_pattern.replace('\\\\#\\\\#\\\\#\\\\#', r'\d{4}')
+            elif '\\#\\#\\#\\#' in escaped_pattern:
+                pattern_for_regex = escaped_pattern.replace('\\#\\#\\#\\#', r'\d{4}')
             else:
-                debug_log(logger, "warning", "Frame not found", f"Frame not found: {frame_path}")
+                # Direct replacement if no escaping occurred
+                pattern_for_regex = escaped_pattern.replace('####', r'\d{4}')
+            
+            debug_log(logger, "info", f"Using regex pattern: {pattern_for_regex}",
+                     f"Original: {pattern_path}, Escaped: {escaped_pattern}, Regex: {pattern_for_regex}")
+            
+            regex_pattern = re.compile(pattern_for_regex)
+            existing_sequence_files = []
+            for file_path in matching_files:
+                if regex_pattern.match(file_path):
+                    existing_sequence_files.append(file_path)
+                else:
+                    # Log first few mismatches for debugging
+                    if len(existing_sequence_files) < 3:
+                        debug_log(logger, "debug", f"Regex mismatch: {file_path}",
+                                 f"File '{file_path}' doesn't match regex '{pattern_for_regex}'")
+            existing_sequence_files.sort()
+        
+        if existing_sequence_files:
+            debug_log(logger, "info", f"Found {len(existing_sequence_files)} files in sequence", 
+                     f"Found sequence files: {len(existing_sequence_files)} files matching pattern")
+            
+            # Extract frame numbers and sort
+            try:
+                frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files)
+            except AttributeError:
+                # Fallback implementation using improved frame extraction
+                frame_info = []
+                for file_path in existing_sequence_files:
+                    # Try improved extraction first
+                    try:
+                        frame_num = SequenceHandler.extract_frame_number_from_path(file_path)
+                        if frame_num is not None:
+                            frame_info.append((frame_num, file_path))
+                    except (AttributeError, NameError):
+                        # Ultimate fallback - original regex approach
+                        import re
+                        basename = os.path.basename(file_path)
+                        match = re.search(r'(\d{3,4})', basename)  # Look for 3-4 digit numbers
+                        if match:
+                            frame_num = int(match.group(1))
+                            frame_info.append((frame_num, file_path))
+                frame_info.sort()
+            
+            # Apply frame selection logic - STRICT count enforcement
+            try:
+                # Debug: Check which SequenceHandler we're using
+                debug_log(logger, "debug", "Using SequenceHandler.select_sequence_frames", 
+                         f"SequenceHandler class: {SequenceHandler.__module__}.{SequenceHandler.__name__}")
+                
+                selected_frames = SequenceHandler.select_sequence_frames(
+                    frame_info, start_frame, frame_count, frame_step, strict_count=False
+                )
+            except AttributeError:
+                # Fallback implementation - use improved frame selection logic
+                selected_frames = []
+                
+                # Method 1: Try to match exact frame numbers first
+                for i in range(0, frame_count * frame_step, frame_step):
+                    target_frame = start_frame + i
+                    # Find the exact matching frame
+                    for frame_num, file_path in frame_info:
+                        if frame_num == target_frame:
+                            selected_frames.append(file_path)
+                            debug_log(logger, "debug", f"Exact match found", 
+                                     f"Selected frame {frame_num} (target: {target_frame})")
+                            break
+                
+                # Method 2: If we don't have enough exact matches, use fallback selection
+                if len(selected_frames) < frame_count:
+                    debug_log(logger, "info", f"Only found {len(selected_frames)} exact matches", 
+                             f"Need {frame_count} frames, found {len(selected_frames)} exact matches. Using fallback selection.")
+                    
+                    # Fill in with available frames, respecting start_frame and step as much as possible
+                    available_paths = [fp for fn, fp in frame_info if fn >= start_frame]
+                    
+                    # Take every nth frame from available, where n approximates the desired step
+                    if available_paths and frame_step > 1:
+                        step_adjusted = max(1, frame_step)
+                        additional_frames = available_paths[::step_adjusted]
+                        
+                        # Add frames we don't already have
+                        for frame_path in additional_frames:
+                            if frame_path not in selected_frames and len(selected_frames) < frame_count:
+                                selected_frames.append(frame_path)
+                    
+                    # If still not enough, just take sequential frames
+                    if len(selected_frames) < frame_count:
+                        for frame_path in available_paths:
+                            if frame_path not in selected_frames and len(selected_frames) < frame_count:
+                                selected_frames.append(frame_path)
+            
+            existing_frames = selected_frames
+            
+            # Debug logging to show selected frames
+            if existing_frames:
+                selected_frame_numbers = []
+                for frame_path in existing_frames:
+                    # Extract frame number for logging
+                    basename = os.path.basename(frame_path)
+                    match = re.search(r'(\d{3,4})', basename)
+                    if match:
+                        selected_frame_numbers.append(int(match.group(1)))
+                
+                debug_log(logger, "info", f"Final selection: {len(existing_frames)} frames", 
+                         f"Selected {len(existing_frames)} frames with numbers: {sorted(selected_frame_numbers)}")
+            else:
+                debug_log(logger, "warning", "No frames selected from sequence", 
+                         "Frame selection resulted in empty list")
+        else:
+            # Fallback to generating frame paths using improved system
+            try:
+                frame_paths = SequenceHandler.generate_frame_paths(pattern_path, start_frame, frame_count, frame_step)
+            except AttributeError:
+                # Ultimate fallback if SequenceHandler not available
+                frame_paths = []
+                for i in range(0, frame_count * frame_step, frame_step):
+                    frame_number = start_frame + i
+                    frame_path = pattern_path.replace('####', f'{frame_number:04d}')
+                    frame_paths.append(frame_path)
+            
+            # Check if files exist
+            existing_frames = []
+            for frame_path in frame_paths:
+                if os.path.exists(frame_path):
+                    existing_frames.append(frame_path)
+                else:
+                    debug_log(logger, "warning", "Frame not found", f"Frame not found: {frame_path}")
+            
+            # Debug logging to show generated and found frames
+            if existing_frames:
+                generated_frame_numbers = []
+                for frame_path in frame_paths:
+                    basename = os.path.basename(frame_path)
+                    match = re.search(r'(\d{3,4})', basename)
+                    if match:
+                        generated_frame_numbers.append(int(match.group(1)))
+                
+                found_frame_numbers = []
+                for frame_path in existing_frames:
+                    basename = os.path.basename(frame_path)
+                    match = re.search(r'(\d{3,4})', basename)
+                    if match:
+                        found_frame_numbers.append(int(match.group(1)))
+                
+                debug_log(logger, "info", f"Generated {len(frame_paths)} paths, found {len(existing_frames)} files", 
+                         f"Generated frames: {sorted(generated_frame_numbers)}, Found frames: {sorted(found_frame_numbers)}")
+            else:
+                debug_log(logger, "warning", f"Generated {len(frame_paths)} paths but no files exist", 
+                         f"Generated frame paths but none of the files exist on disk")
         
         if not existing_frames:
+            # Try to provide helpful information about what files were found
+            directory = os.path.dirname(pattern_path) if pattern_path else "."
+            pattern_filename = os.path.basename(pattern_path) if pattern_path else ""
+            
+            debug_log(logger, "error", "No sequence frames found", 
+                     f"No sequence frames found for pattern: {pattern_path}")
+            
+            if os.path.exists(directory):
+                available_files = [f for f in os.listdir(directory) if f.endswith('.exr')]
+                debug_log(logger, "info", f"Directory scan: {len(available_files)} EXR files found",
+                         f"Available EXR files in directory '{directory}': {available_files[:10]}")
+                
+                # If there are EXR files, show pattern matching hints
+                if available_files:
+                    debug_log(logger, "info", "Pattern matching hints", 
+                             f"Pattern '{pattern_filename}' expected in directory. " +
+                             f"Consider checking: 1) Path separators (/ vs \\), " +
+                             f"2) Frame numbering format (should be 4 digits like 0001), " +
+                             f"3) File naming convention matches exactly")
+            else:
+                debug_log(logger, "error", f"Directory does not exist: {directory}",
+                         f"The directory '{directory}' from pattern '{pattern_path}' does not exist")
+                
             raise FileNotFoundError(f"No sequence frames found for pattern: {pattern_path}")
+        
+        # Enforce frame count limit - ensure we don't load more than requested
+        if len(existing_frames) > frame_count:
+            existing_frames = existing_frames[:frame_count]
+            debug_log(logger, "info", f"Limited to requested frame count: {frame_count}", 
+                     f"Limited sequence to {frame_count} frames as requested by user")
         
         # Load first frame to establish structure
         first_frame_result = self._load_single_image(existing_frames[0], normalize, node_id, layer_data)
@@ -248,21 +422,27 @@ class load_exr:
                 # Continue with other frames
                 continue
         
-        # Stack tensors into batches
-        final_rgb = torch.cat(batch_rgb_list, dim=0)
-        final_alpha = torch.cat(batch_alpha_list, dim=0)
+        # Stack tensors into batches - ensure proper [B, H, W, C] format for ComfyUI
+        final_rgb = torch.cat(batch_rgb_list, dim=0)  # Shape: [B, H, W, 3]
+        final_alpha = torch.cat(batch_alpha_list, dim=0)  # Shape: [B, H, W]
         
-        # Stack layer tensors
+        # Stack layer tensors - maintain proper batch dimensions
         final_layers = {}
         for layer_name, tensor_list in batch_layers_dict.items():
             if tensor_list:
-                final_layers[layer_name] = torch.cat(tensor_list, dim=0)
+                stacked_tensor = torch.cat(tensor_list, dim=0)
+                final_layers[layer_name] = stacked_tensor
+                debug_log(logger, "info", f"Layer {layer_name}: {format_tensor_info(stacked_tensor.shape, stacked_tensor.dtype)}",
+                         f"Batched layer '{layer_name}': shape={stacked_tensor.shape}, dtype={stacked_tensor.dtype}")
         
-        # Stack cryptomatte tensors
+        # Stack cryptomatte tensors - maintain proper batch dimensions  
         final_cryptomatte = {}
         for crypto_name, tensor_list in batch_cryptomatte_dict.items():
             if tensor_list:
-                final_cryptomatte[crypto_name] = torch.cat(tensor_list, dim=0)
+                stacked_tensor = torch.cat(tensor_list, dim=0)
+                final_cryptomatte[crypto_name] = stacked_tensor
+                debug_log(logger, "info", f"Cryptomatte {crypto_name}: {format_tensor_info(stacked_tensor.shape, stacked_tensor.dtype)}",
+                         f"Batched cryptomatte '{crypto_name}': shape={stacked_tensor.shape}, dtype={stacked_tensor.dtype}")
         
         # Update metadata to include sequence info
         metadata_str = first_frame_data[2]
@@ -277,8 +457,13 @@ class load_exr:
         }
         metadata_json = json.dumps(metadata)
         
+        # Log final batch information
+        debug_log(logger, "info", f"Sequence loaded: {len(existing_frames)} frames, RGB shape: {format_tensor_info(final_rgb.shape, final_rgb.dtype)}",
+                 f"Successfully loaded sequence: {len(existing_frames)} frames, RGB batch shape: {final_rgb.shape}, "
+                 f"Alpha batch shape: {final_alpha.shape}, {len(final_layers)} layer types, {len(final_cryptomatte)} cryptomatte types")
+        
         # Generate preview for sequence (first frame) at full resolution
-        preview_result = generate_preview_for_comfyui(final_rgb, pattern_path, is_sequence=True, full_size=True)
+        preview_result = generate_preview_for_comfyui(final_rgb, pattern_path, is_sequence=True, frame_index=0)
         
         # Return same structure as single image
         result = [
@@ -520,7 +705,7 @@ class load_exr:
             processed_layer_names = self._create_processed_layer_names(layers_dict, cryptomatte_dict)
             
             # Generate preview for ComfyUI using modular system (full resolution)
-            preview_result = generate_preview_for_comfyui(rgb_tensor, image_path, is_sequence=False, full_size=True)
+            preview_result = generate_preview_for_comfyui(rgb_tensor, image_path, is_sequence=False, frame_index=0)
             
             # Return the results
             result = [rgb_tensor, alpha_tensor, metadata_json, layers_dict, cryptomatte_dict, layer_names, processed_layer_names]

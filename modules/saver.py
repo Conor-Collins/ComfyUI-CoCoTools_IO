@@ -13,10 +13,11 @@ import cv2 as cv
 
 logger = logging.getLogger(__name__)
 
-# Import debug utilities and preview utilities
+# Import debug utilities, preview utilities, and sequence utilities
 try:
     from ..utils.debug_utils import debug_log, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
+    from ..utils.sequence_utils import SequenceHandler, DynamicUIHelper
 except ImportError:
     # Fallback if utils not available
     def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
@@ -25,6 +26,19 @@ except ImportError:
         return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0, full_size=False):
         return None
+    
+    # Fallback sequence handler
+    class SequenceHandler:
+        @staticmethod
+        def detect_sequence_pattern(path): return '####' in path if path else False
+        @staticmethod
+        def generate_frame_paths(pattern, start, count, step): return []
+    
+    class DynamicUIHelper:
+        @staticmethod
+        def create_save_mode_widgets(): return {"sequence": [["start_frame", "INT", {"default": 1}], ["frame_step", "INT", {"default": 1}]]}
+        @staticmethod
+        def create_versioning_widgets(): return {"versioning": [["version", "INT", {"default": 1}]]}
 
 class saver:
     """Optimized image saver node with consistent bit depth handling"""
@@ -63,13 +77,25 @@ class saver:
             ]
         }
         
+        # Create sequence and versioning widgets using shared utilities
+        save_mode_widgets = DynamicUIHelper.create_save_mode_widgets()
+        versioning_widgets = DynamicUIHelper.create_versioning_widgets()
+        
         return {
             "required": {
                 "images": ("IMAGE",),
                 "file_path": ("STRING", {"default": ""}),
                 "filename": ("STRING", {"default": "ComfyUI"}),
-                "use_versioning": ("BOOLEAN", {"default": False}),
-                "version": ("INT", {"default": 1, "min": -1, "max": 999}),
+                "save_mode": (["single", "sequence"], {
+                    "default": "single",
+                    "description": "Save mode: single files or sequence pattern",
+                    "formats": save_mode_widgets
+                }),
+                "use_versioning": ("BOOLEAN", {
+                    "default": False,
+                    "description": "Enable version numbering",
+                    "formats": versioning_widgets
+                }),
                 "file_type": (["exr", "png", "jpg", "webp", "tiff"], {"default": "png", "formats": format_widgets}),
             },
             "hidden": {
@@ -242,10 +268,11 @@ class saver:
                 return new_path
             counter += 1
 
-    def save_images(self, images, file_path, filename, file_type, bit_depth=None,
-                   quality=None, save_as_grayscale=None, use_versioning=True,
-                   version=1, prompt=None, extra_pnginfo=None, exr_compression=None, **kwargs):
-        """Main save function with optimized pipeline - handles missing contextual inputs"""
+    def save_images(self, images, file_path, filename, save_mode="single", file_type="png", 
+                   bit_depth=None, quality=None, save_as_grayscale=None, use_versioning=False,
+                   version=1, start_frame=None, frame_step=None, prompt=None, extra_pnginfo=None, 
+                   exr_compression=None, **kwargs):
+        """Main save function with optimized pipeline - handles missing contextual inputs and sequence mode"""
         
         # Provide format-specific defaults for missing inputs
         if bit_depth is None:
@@ -259,10 +286,23 @@ class saver:
             
         if exr_compression is None:
             exr_compression = "zips"  # Default for EXR
+            
+        # Handle sequence parameters with defaults
+        if start_frame is None:
+            start_frame = 1
+        if frame_step is None:
+            frame_step = 1
+            
         try:
             # Validate inputs
             bit_depth = int(bit_depth)
             file_type = file_type.lower()
+            
+            # Determine if this is sequence mode and validate pattern
+            is_sequence_mode = save_mode == "sequence" or SequenceHandler.detect_sequence_pattern(filename)
+            
+            debug_log(logger, "info", f"Saving {len(images)} images in {save_mode} mode", 
+                     f"Save mode: {save_mode}, Is sequence: {is_sequence_mode}, File type: {file_type}")
             bit_depth = self.validate_bit_depth(file_type, bit_depth)
             
             # Log save operation
@@ -283,14 +323,26 @@ class saver:
             # Track saved files for preview
             saved_files = []
             
-            # Process each image
+            # Process each image - handle single vs sequence mode
             for i, img_tensor in enumerate(images):
                 # Prepare image (all formats start from float32 [0,1])
                 img_np = self.prepare_image(img_tensor, save_as_grayscale)
                 
-                # Build output path
-                frame_str = f"_{i}" if len(images) > 1 else ""
-                out_path = f"{base_path}{version_str}{frame_str}.{file_type}"
+                # Build output path based on mode
+                if is_sequence_mode and SequenceHandler.detect_sequence_pattern(filename):
+                    # Sequence mode with #### pattern
+                    frame_number = start_frame + (i * frame_step)
+                    sequence_filename = filename.replace('####', f'{frame_number:04d}')
+                    out_path = f"{os.path.join(os.path.dirname(base_path), sequence_filename)}{version_str}.{file_type}"
+                elif is_sequence_mode:
+                    # Sequence mode without pattern - use frame numbers
+                    frame_number = start_frame + (i * frame_step)
+                    out_path = f"{base_path}_{frame_number:04d}{version_str}.{file_type}"
+                else:
+                    # Single mode - use index for multiple images
+                    frame_str = f"_{i}" if len(images) > 1 else ""
+                    out_path = f"{base_path}{version_str}{frame_str}.{file_type}"
+                
                 out_path = self.get_unique_filepath(out_path)
                 
                 # Save based on format
@@ -316,8 +368,8 @@ class saver:
             preview_data = generate_preview_for_comfyui(
                 images, 
                 source_path=f"saver_{len(saved_files)}_files",
-                is_sequence=len(saved_files) > 1,
-                full_size=True
+                is_sequence=is_sequence_mode or len(saved_files) > 1,
+                frame_index=0
             )
             
             # Log completion
