@@ -18,7 +18,7 @@ except ImportError:
         return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     DEBUG_MODE = "simple"
 
-class load_exr_layer_by_name:
+class LoadExrLayerByName:
     """
     The Load EXR Layer by Name node allows selecting a specific layer from an EXR layer dictionary.
     It works like Nuke's Shuffle node, allowing users to pick a specific layer to output.
@@ -232,7 +232,7 @@ class load_exr_layer_by_name:
         return [image_output, mask_output]
 
 # Define a copy of the main class for cryptomatte layers
-class shamble_cryptomatte(load_exr_layer_by_name):
+class CryptomatteLayer(LoadExrLayerByName):
     """
     The Cryptomatte Shamble node allows selecting a specific cryptomatte layer from an EXR dictionary.
     It is identical to the Load EXR Layer by Name node but filters for cryptomatte layers only.
@@ -325,12 +325,12 @@ class shamble_cryptomatte(load_exr_layer_by_name):
         # Return the requested cryptomatte layer
         return [cryptomatte[layer_name]]
 
-NODE_CLASS_MAPPINGS = {
-    "load_exr_layer_by_name": load_exr_layer_by_name,
-    "shamble_cryptomatte": shamble_cryptomatte
-}
+# NODE_CLASS_MAPPINGS = {
+#     "load_exr_layer_by_name": load_exr_layer_by_name,
+#     "shamble_cryptomatte": shamble_cryptomatte
+# }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "load_exr_layer_by_name": "Load EXR Layer by Name",
-    "shamble_cryptomatte": "Cryptomatte Layer"
-}
+# NODE_DISPLAY_NAME_MAPPINGS = {
+#     "load_exr_layer_by_name": "Load EXR Layer by Name",
+#     "shamble_cryptomatte": "Cryptomatte Layer"
+# }

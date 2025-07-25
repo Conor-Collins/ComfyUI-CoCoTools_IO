@@ -40,7 +40,7 @@ except ImportError:
         @staticmethod
         def create_versioning_widgets(): return {"versioning": [["version", "INT", {"default": 1}]]}
 
-class saver:
+class SaverNode:
     """Optimized image saver node with consistent bit depth handling"""
     
     # Format specifications
@@ -390,10 +390,10 @@ class saver:
             debug_log(logger, "error", "Save operation failed", f"Saver error: {str(e)}")
             raise RuntimeError(f"Saver error: {str(e)}") from e
 
-NODE_CLASS_MAPPINGS = {
-    "saver": saver,
-}
+# NODE_CLASS_MAPPINGS = {
+#     "saver": saver,
+# }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "saver": "Image Saver"
-}
+# NODE_DISPLAY_NAME_MAPPINGS = {
+#     "saver": "Image Saver"
+# }

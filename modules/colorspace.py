@@ -27,7 +27,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class colorspace:
+class ColorspaceNode:
     """Simplified colorspace converter using colour-science library."""
     
     def __init__(self):
@@ -357,13 +357,13 @@ def test_colour_science_setup():
         return False
 
 # Register the node
-NODE_CLASS_MAPPINGS = {
-    "ColorspaceNode": colorspace,
-}
+# NODE_CLASS_MAPPINGS = {
+#     "ColorspaceNode": colorspace,
+# }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "ColorspaceNode": "Colorspace",
-}
+# NODE_DISPLAY_NAME_MAPPINGS = {
+#     "ColorspaceNode": "Colorspace",
+# }
 
 if __name__ == "__main__":
     test_colour_science_setup()

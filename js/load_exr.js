@@ -37,10 +37,13 @@ function addSequenceWidgets(nodeType, nodeData) {
         }
         let sequenceWidgetsCount = 0;
         chainCallback(typeWidget, "callback", (value) => {
+            console.log("Load EXR widget callback triggered, value:", value);
             const formats = (LiteGraph.registered_node_types[this.type]
                 ?.nodeData?.input?.required?.image_type?.[1]?.formats);
+            console.log("Available formats:", formats);
             let newWidgets = [];
             if (formats?.[value]) {
+                console.log("Creating widgets for format:", value, formats[value]);
                 let sequenceWidgets = formats[value];
                 for (let wDef of sequenceWidgets) {
                     let type = wDef[1];
@@ -55,9 +58,11 @@ function addSequenceWidgets(nodeType, nodeData) {
                         }
                     }
                     w.config = wDef.slice(1);
+                    console.log("Created widget:", w.name, "value:", w.value, "config:", w.config);
                     newWidgets.push(w);
                 }
             }
+            console.log("Total new widgets created:", newWidgets.length);
             let removed = this.widgets.splice(typeWidgetIndex,
                                             sequenceWidgetsCount, ...newWidgets);
             for (let w of removed) {

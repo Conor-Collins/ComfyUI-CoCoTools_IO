@@ -1,11 +1,11 @@
 
 # Import all available modules
-from .modules.image_loader import coco_loader
-from .modules.load_exr import load_exr
-from .modules.saver import saver
-from .modules.load_exr_layer_by_name import load_exr_layer_by_name, shamble_cryptomatte
-from .modules.colorspace import colorspace
-from .modules.znormalize import znormalize
+from .modules.image_loader import ImageLoader
+from .modules.load_exr import LoadExr
+from .modules.saver import SaverNode
+from .modules.load_exr_layer_by_name import LoadExrLayerByName, CryptomatteLayer
+from .modules.colorspace import ColorspaceNode
+from .modules.znormalize import ZNormalizeNode
 
 # Initialize node mappings
 NODE_CLASS_MAPPINGS = {}
@@ -18,24 +18,24 @@ WEB_DIRECTORY = os.path.join(NODE_DIR, "js")
 
 # Add all available node classes
 NODE_CLASS_MAPPINGS.update({
-    "ImageLoader": coco_loader,
-    "LoadExr": load_exr,  
-    "SaverNode": saver,
-    "LoadExrLayerByName": load_exr_layer_by_name,
-    "CryptomatteLayer": shamble_cryptomatte,
-    "ColorspaceNode": colorspace,
-    "ZNormalizeNode": znormalize
+    "ImageLoader": ImageLoader,
+    "LoadExr": LoadExr,  
+    "SaverNode": SaverNode,
+    "LoadExrLayerByName": LoadExrLayerByName,
+    "CryptomatteLayer": CryptomatteLayer,
+    "ColorspaceNode": ColorspaceNode,
+    "ZNormalizeNode": ZNormalizeNode
 })
 
 # Add display names for better UI presentation
 NODE_DISPLAY_NAME_MAPPINGS.update({
-    "ImageLoader": "coco Loader",
-    "LoadExr": "coco Load EXR", 
-    "SaverNode": "coco Saver",
-    "LoadExrLayerByName": "Load EXR Layer by Name",
-    "CryptomatteLayer": "Cryptomatte Layer",
-    "ColorspaceNode": "Colorspace",
-    "ZNormalizeNode": "Z Normalize"
+    "ImageLoader": "CoCo Loader",
+    "LoadExr": "CoCo Load EXR", 
+    "SaverNode": "CoCo Saver",
+    "LoadExrLayerByName": "CoCo Load EXR Layer by Name",
+    "CryptomatteLayer": "CoCo Cryptomatte Layer",
+    "ColorspaceNode": "CoCo Colorspace",
+    "ZNormalizeNode": "CoCo Z Normalize"
 })
 
 # Expose what ComfyUI needs

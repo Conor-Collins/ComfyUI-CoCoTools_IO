@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class coco_loader:
+class ImageLoader:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -128,10 +128,10 @@ class coco_loader:
         return image_tensor
 
 
-NODE_CLASS_MAPPINGS = {
-    "coco_loader": coco_loader
-}
+# NODE_CLASS_MAPPINGS = {
+#     "coco_loader": coco_loader
+# }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "coco_loader": "Load Image (supports jpg, png, tif, avif, webp)"
-}
+# NODE_DISPLAY_NAME_MAPPINGS = {
+#     "coco_loader": "Load Image (supports jpg, png, tif, avif, webp)"
+# }

@@ -138,81 +138,78 @@ class SequenceHandler:
         return frame_info
     
     @staticmethod
-    def generate_frame_paths(pattern_path: str, start_frame: int, frame_count: int, frame_step: int) -> List[str]:
+    def generate_frame_paths(pattern_path: str, start_frame: int, end_frame: int, frame_step: int) -> List[str]:
         """Generate list of frame paths based on pattern and parameters using improved regex approach"""
         frame_paths = []
         
-        for i in range(0, frame_count * frame_step, frame_step):
-            frame_number = start_frame + i
-            frame_path = SequenceHandler.replace_frame_number(pattern_path, frame_number)
+        current_frame = start_frame
+        while current_frame <= end_frame:
+            frame_path = SequenceHandler.replace_frame_number(pattern_path, current_frame)
             frame_paths.append(frame_path)
+            current_frame += frame_step
         
         return frame_paths
     
     @staticmethod
     def select_sequence_frames(available_frames: List[Tuple[int, str]], start_frame: int, 
-                             frame_count: int, frame_step: int, strict_count: bool = True) -> List[str]:
+                             end_frame: int, frame_step: int) -> List[str]:
         """
         Select specific frames from available sequence based on parameters
         
         Args:
             available_frames: List of (frame_number, file_path) tuples
             start_frame: Starting frame number
-            frame_count: Number of frames to select
+            end_frame: Ending frame number
             frame_step: Step between frames
-            strict_count: If True, return exactly frame_count frames (pad if needed)
-                         If False, return what's available up to frame_count
         
         Returns:
-            List of selected file paths
+            List of selected file paths (strict selection - no fallbacks)
         """
         selected_frames = []
         
-        # Method 1: Try to match exact frame numbers
-        for i in range(0, frame_count * frame_step, frame_step):
-            target_frame = start_frame + i
+        # Generate expected frame numbers and find exact matches
+        current_frame = start_frame
+        while current_frame <= end_frame:
             # Find the exact matching frame
+            found = False
             for frame_num, file_path in available_frames:
-                if frame_num == target_frame:
+                if frame_num == current_frame:
                     selected_frames.append(file_path)
+                    found = True
                     break
-        
-        # Method 2: If we don't have enough exact matches and strict_count is False
-        if len(selected_frames) < frame_count and not strict_count:
-            # Fill in with available frames, respecting start_frame and step as much as possible
-            available_paths = [fp for fn, fp in available_frames if fn >= start_frame]
             
-            # Take every nth frame from available, where n approximates the desired step
-            if available_paths and frame_step > 1:
-                step_adjusted = max(1, frame_step)
-                additional_frames = available_paths[::step_adjusted]
-                
-                # Add frames we don't already have
-                for frame_path in additional_frames:
-                    if frame_path not in selected_frames and len(selected_frames) < frame_count:
-                        selected_frames.append(frame_path)
+            # If frame not found, append None to maintain sequence positions
+            if not found:
+                selected_frames.append(None)
             
-            # If still not enough, just take sequential frames
-            if len(selected_frames) < frame_count:
-                for frame_path in available_paths:
-                    if frame_path not in selected_frames and len(selected_frames) < frame_count:
-                        selected_frames.append(frame_path)
+            current_frame += frame_step
         
-        debug_log(logger, "info", f"Selected {len(selected_frames)} frames", 
-                 f"Selected {len(selected_frames)} frames from {len(available_frames)} available " +
-                 f"(start={start_frame}, count={frame_count}, step={frame_step})")
+        expected_count = len(range(start_frame, end_frame + 1, frame_step))
+        debug_log(logger, "info", f"Selected {len([f for f in selected_frames if f is not None])} of {expected_count} frames", 
+                 f"Selected {len([f for f in selected_frames if f is not None])} frames from {len(available_frames)} available " +
+                 f"(start={start_frame}, end={end_frame}, step={frame_step})")
         
         return selected_frames
     
     @staticmethod
-    def validate_sequence_parameters(start_frame: int, frame_count: int, frame_step: int) -> Tuple[int, int, int]:
+    def validate_sequence_parameters(start_frame: int, end_frame: int, frame_step: int) -> Tuple[int, int, int]:
         """Validate and sanitize sequence parameters"""
-        # Ensure positive values
-        start_frame = max(0, start_frame if start_frame is not None else 1)
-        frame_count = max(1, frame_count if frame_count is not None else 10)
-        frame_step = max(1, frame_step if frame_step is not None else 1)
+        # Ensure valid values - no fallback defaults
+        if start_frame is None:
+            raise ValueError("start_frame parameter is required and cannot be None. " +
+                           "Make sure the node is in 'sequence' mode and the sequence widgets are visible.")
+        if end_frame is None:
+            raise ValueError("end_frame parameter is required and cannot be None. " +
+                           "Make sure the node is in 'sequence' mode and the sequence widgets are visible.")
+        if frame_step is None:
+            raise ValueError("frame_step parameter is required and cannot be None. " +
+                           "Make sure the node is in 'sequence' mode and the sequence widgets are visible.")
+            
+        start_frame = max(0, start_frame)
+        end_frame = max(start_frame, end_frame)
+        frame_step = max(1, frame_step)
         
-        return start_frame, frame_count, frame_step
+        return start_frame, end_frame, frame_step
     
     @staticmethod
     def get_sequence_info(pattern_path: str) -> Dict:
@@ -240,12 +237,12 @@ class DynamicUIHelper:
     """Helper for creating dynamic UI widgets in ComfyUI nodes"""
     
     @staticmethod
-    def create_sequence_widgets(default_start: int = 1, default_count: int = 10, default_step: int = 1) -> Dict:
+    def create_sequence_widgets(default_start: int = 1, default_end: int = 100, default_step: int = 1) -> Dict:
         """Create standard sequence control widgets"""
         return {
             "sequence": [
                 ["start_frame", "INT", {"default": default_start, "min": 0, "max": 999999}],
-                ["frame_count", "INT", {"default": default_count, "min": 1, "max": 1000}],
+                ["end_frame", "INT", {"default": default_end, "min": 1, "max": 999999}],
                 ["frame_step", "INT", {"default": default_step, "min": 1, "max": 100}]
             ]
         }

@@ -20,7 +20,7 @@ except ImportError:
     def log_batch_processing(tensor, operation, name="tensor"):
         pass
 
-class znormalize:
+class ZNormalizeNode:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -109,10 +109,10 @@ class znormalize:
             raise
 
 # Node registration
-NODE_CLASS_MAPPINGS = {
-    "znormalize": znormalize
-}
+# NODE_CLASS_MAPPINGS = {
+#     "znormalize": znormalize
+# }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "znormalize": "Z Normalize"
-}
+# NODE_DISPLAY_NAME_MAPPINGS = {
+#     "znormalize": "Z Normalize"
+# }

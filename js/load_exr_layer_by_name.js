@@ -4,11 +4,11 @@ app.registerExtension({
     name: "LoadExrLayerByName",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         // Only handle the Load EXR Layer by Name nodes
-        if (nodeData.name !== "load_exr_layer_by_name" && nodeData.name !== "shamble_cryptomatte") {
+        if (nodeData.name !== "LoadExrLayerByName" && nodeData.name !== "CryptomatteLayer") {
             return;
         }
 
-        const isCryptomatte = nodeData.name === "shamble_cryptomatte";
+        const isCryptomatte = nodeData.name === "CryptomatteLayer";
         console.log(`Registering ${isCryptomatte ? "Cryptomatte " : ""}Load EXR Layer by Name node`);
         
         // Store original methods to call them later
@@ -113,8 +113,8 @@ app.registerExtension({
             const sourceNode = connectionInfo.node;
             console.log(`Finding available layers from ${sourceNode.title || sourceNode.type}`);
             
-            // Check if the source is a load_exr node
-            const isLoadExr = sourceNode.type.includes("load_exr");
+            // Check if the source is a LoadExr node
+            const isLoadExr = sourceNode.type.includes("LoadExr");
             
             // Try multiple approaches to get layer names
             let layerNames = [];
@@ -242,7 +242,7 @@ app.registerExtension({
         app.addEventListener("graphExecuted", (e) => {
             try {
                 // Get all matched nodes
-                const matchedNodes = findNodes(isCryptomatte ? "shamble_cryptomatte" : "load_exr_layer_by_name");
+                const matchedNodes = findNodes(isCryptomatte ? "CryptomatteLayer" : "LoadExrLayerByName");
                 
                 if (matchedNodes.length === 0) {
                     return; // No nodes to update
