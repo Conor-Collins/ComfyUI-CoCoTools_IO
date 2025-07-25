@@ -1,8 +1,13 @@
 import torch
 import logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Import centralized logging setup
+try:
+    from ..utils.debug_utils import setup_logging
+    setup_logging()
+except ImportError:
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 # Import debug utilities and batch processing
@@ -47,6 +52,10 @@ class ZNormalizeNode:
     RETURN_NAMES = ("normalized_depth_image",)
     FUNCTION = "normalize_depth"
     CATEGORY = "COCO Tools/Processing"
+    
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # Always execute
 
     def normalize_depth(self, image, min_depth, max_depth):
         """

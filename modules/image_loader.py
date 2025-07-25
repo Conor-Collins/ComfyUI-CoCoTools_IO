@@ -5,7 +5,13 @@ import torch
 from PIL import Image, ImageOps
 from typing import Tuple
 
-logging.basicConfig(level=logging.INFO)
+# Import centralized logging setup
+try:
+    from ..utils.debug_utils import setup_logging
+    setup_logging()
+except ImportError:
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +36,10 @@ class ImageLoader:
     RETURN_NAMES = ("image", "mask", "metadata")
     FUNCTION = "load_regular_image"
     CATEGORY = "COCO Tools/Loaders"
+    
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # Always execute
 
     def load_regular_image(
         self, image_path: str, normalize: bool = True, node_id: str = None

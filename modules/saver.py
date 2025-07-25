@@ -109,6 +109,9 @@ class SaverNode:
     OUTPUT_NODE = True
     CATEGORY = "COCO Tools/Savers"
     
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # Always execute
 
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()

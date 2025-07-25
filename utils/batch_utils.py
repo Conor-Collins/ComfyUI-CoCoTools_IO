@@ -13,10 +13,9 @@ logger = logging.getLogger(__name__)
 try:
     from .debug_utils import debug_log, format_tensor_info
 except ImportError:
-    def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
-        getattr(logger, level.lower())(simple_msg)
-    def format_tensor_info(tensor_shape, tensor_dtype, name=""):
-        return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
+    # Use fallback functions
+    debug_log = lambda logger, level, simple_msg, verbose_msg=None, **kwargs: getattr(logger, level.lower())(simple_msg)
+    format_tensor_info = lambda tensor_shape, tensor_dtype, name="": f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
 
 
 class BatchProcessor:

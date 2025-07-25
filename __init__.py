@@ -2,6 +2,7 @@
 # Import all available modules
 from .modules.image_loader import ImageLoader
 from .modules.load_exr import LoadExr
+from .modules.load_exr_sequence import LoadExrSequence
 from .modules.saver import SaverNode
 from .modules.load_exr_layer_by_name import LoadExrLayerByName, CryptomatteLayer
 from .modules.colorspace import ColorspaceNode
@@ -19,7 +20,8 @@ WEB_DIRECTORY = os.path.join(NODE_DIR, "js")
 # Add all available node classes
 NODE_CLASS_MAPPINGS.update({
     "ImageLoader": ImageLoader,
-    "LoadExr": LoadExr,  
+    "LoadExr": LoadExr,
+    "LoadExrSequence": LoadExrSequence,  
     "SaverNode": SaverNode,
     "LoadExrLayerByName": LoadExrLayerByName,
     "CryptomatteLayer": CryptomatteLayer,
@@ -30,7 +32,8 @@ NODE_CLASS_MAPPINGS.update({
 # Add display names for better UI presentation
 NODE_DISPLAY_NAME_MAPPINGS.update({
     "ImageLoader": "CoCo Loader",
-    "LoadExr": "CoCo Load EXR", 
+    "LoadExr": "CoCo Load EXR",
+    "LoadExrSequence": "CoCo Load EXR Sequence", 
     "SaverNode": "CoCo Saver",
     "LoadExrLayerByName": "CoCo Load EXR Layer by Name",
     "CryptomatteLayer": "CoCo Cryptomatte Layer",

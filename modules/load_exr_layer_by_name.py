@@ -2,7 +2,13 @@ import torch
 import logging
 from typing import Dict, List, Union, Any
 
-logging.basicConfig(level=logging.INFO)
+# Import centralized logging setup
+try:
+    from ..utils.debug_utils import setup_logging
+    setup_logging()
+except ImportError:
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 # Import debug utilities
@@ -54,6 +60,10 @@ class LoadExrLayerByName:
     RETURN_NAMES = ("image", "mask")
     FUNCTION = "process_layer"
     CATEGORY = "Image/EXR"
+    
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # Always execute
     
     def process_layer(self, layers: Dict[str, torch.Tensor], layer_name: str, 
                      conversion: str = "Auto") -> List[Union[torch.Tensor, None]]:
@@ -255,6 +265,10 @@ class CryptomatteLayer(LoadExrLayerByName):
     RETURN_NAMES = ("image",)
     FUNCTION = "process_cryptomatte"
     CATEGORY = "Image/EXR"
+    
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # Always execute
     
     def process_cryptomatte(self, cryptomatte: Dict[str, torch.Tensor], layer_name: str) -> List[torch.Tensor]:
         """

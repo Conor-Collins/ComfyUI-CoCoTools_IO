@@ -23,8 +23,13 @@ except ImportError:
     def log_batch_processing(tensor, operation, name="tensor"):
         pass
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Import centralized logging setup
+try:
+    from ..utils.debug_utils import setup_logging
+    setup_logging()
+except ImportError:
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 class ColorspaceNode:
@@ -90,6 +95,10 @@ class ColorspaceNode:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "convert_colorspace"
     CATEGORY = "COCO Tools/Processing"
+    
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")  # Always execute
 
     def _is_encoded_colorspace(self, colorspace_name: str) -> bool:
         """Check if a colorspace name indicates encoded (non-linear) data."""

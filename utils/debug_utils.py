@@ -7,6 +7,21 @@ from typing import List, Dict, Any, Optional
 # Global debug mode control - default to simple
 DEBUG_MODE = "simple"  # "simple" or "verbose"
 
+# Flag to prevent multiple logging configurations
+_LOGGING_CONFIGURED = False
+
+def setup_logging(level: int = logging.INFO):
+    """
+    Centralized logging configuration for all COCO Tools modules.
+    Should be called once at module level to avoid conflicts.
+    """
+    global _LOGGING_CONFIGURED
+    if not _LOGGING_CONFIGURED:
+        # Check if root logger already has handlers to prevent duplicate setup
+        if not logging.getLogger().handlers:
+            logging.basicConfig(level=level)
+        _LOGGING_CONFIGURED = True
+
 def set_debug_mode(mode: str):
     """Set global debug mode"""
     global DEBUG_MODE
@@ -54,3 +69,15 @@ def format_tensor_info(tensor_shape: tuple, tensor_dtype: Any, name: str = "") -
     if DEBUG_MODE == "simple":
         return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     return f"{name} shape={tensor_shape}, dtype={tensor_dtype}" if name else f"shape={tensor_shape}, dtype={tensor_dtype}"
+
+def create_fallback_functions():
+    """
+    Create fallback functions for cases where debug_utils import fails.
+    Returns a dictionary of fallback functions following single responsibility principle.
+    """
+    return {
+        'debug_log': lambda logger, level, simple_msg, verbose_msg=None, **kwargs: getattr(logger, level.lower())(simple_msg),
+        'format_layer_names': lambda layer_names, max_simple=None: ', '.join(layer_names),
+        'format_tensor_info': lambda tensor_shape, tensor_dtype, name="": f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}",
+        'generate_preview_for_comfyui': lambda image_tensor, source_path="", is_sequence=False, frame_index=0: None
+    }

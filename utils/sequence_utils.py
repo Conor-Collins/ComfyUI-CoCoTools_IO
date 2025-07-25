@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 try:
     from .debug_utils import debug_log
 except ImportError:
-    def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
-        getattr(logger, level.lower())(simple_msg)
+    # Use fallback function
+    debug_log = lambda logger, level, simple_msg, verbose_msg=None, **kwargs: getattr(logger, level.lower())(simple_msg)
 
 
 class SequenceHandler:
