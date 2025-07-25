@@ -11,15 +11,16 @@ A set of nodes focused on advanced image I/O operations, particularly for EXR fi
 
 ## Installation for comfyui portable (tested on 0.3.44)
 
-from the python_embeded/ folder
 
-```bash
-python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requirements.txt
-```
 
 ### Manual Installation
 1. Clone the repository into your ComfyUI `custom_nodes` directory
 2. Install dependencies
+    from the python_embeded/ folder
+
+    ```bash
+    python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requirements.txt
+    ```
 3. Restart ComfyUI
 
 
@@ -50,13 +51,14 @@ python.exe -m pip install -r ./ComfyUI/custom_nodes/ComfyUI-CoCoTools/requiremen
 - [ ] Complete cryptomatte layer implementation
 - [ ] Adopt filename parsing for saving files into datestamped folders
 
+
+
 ## Third-Party Libraries and Licensing
 
 This project uses the following third-party libraries:
 
 - **Colour Science for Python**: Used for colorspace transformations in the Colorspace Converter node. Licensed under the New BSD License.
 - **OpenColorIO**: Used for color space transformations. Licensed under the BSD 3-Clause License.
-- **ACES Configuration**: The ACES OCIO configuration file is provided by the Academy of Motion Picture Arts and Sciences.
 
 For detailed licensing information, please see the [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) file.
 
