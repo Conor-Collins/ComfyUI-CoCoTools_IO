@@ -38,8 +38,8 @@ class LoadExrLayerByName:
 
     @classmethod
     def INPUT_TYPES(cls):
-        debug_log(logger, "info", f"Available layers: {len(cls.available_layers)}", 
-                 f"INPUT_TYPES called - available layers: {cls.available_layers}")
+        # debug_log(logger, "info", f"Available layers: {len(cls.available_layers)}", 
+        #          f"INPUT_TYPES called - available layers: {cls.available_layers}")
         return {
             "required": {
                 "layers": ("LAYERS",),
@@ -84,8 +84,8 @@ class LoadExrLayerByName:
             return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
             
         # Log the available layers for debugging
-        debug_log(logger, "info", f"Found {len(layers)} layers: {format_layer_names(list(layers.keys()))}", 
-                 f"Available layers: {list(layers.keys())}")
+        # debug_log(logger, "info", f"Found {len(layers)} layers: {format_layer_names(list(layers.keys()))}", 
+        #          f"Available layers: {list(layers.keys())}")
         if DEBUG_MODE == "verbose":
             for layer_key, layer_tensor in layers.items():
                 debug_log(logger, "info", "", f"Layer '{layer_key}' has shape {layer_tensor.shape} and type {layer_tensor.dtype}")
