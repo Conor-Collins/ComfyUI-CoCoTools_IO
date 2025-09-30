@@ -78,7 +78,7 @@ class ColorspaceNode:
         # Available colorspaces for the UI
         self.available_colorspaces = list(self.colorspace_mapping.keys())
         
-        logger.info(f"Initialized with {len(self.available_colorspaces)} colorspaces")
+        logger.debug(f"Initialized with {len(self.available_colorspaces)} colorspaces")
     
     @classmethod
     def INPUT_TYPES(cls):
