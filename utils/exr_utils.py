@@ -734,3 +734,203 @@ class ExrProcessor:
         except Exception as e:
             debug_log(logger, "error", "Error loading EXR", f"Error loading EXR file {image_path}: {str(e)}")
             raise
+
+    @staticmethod
+    def export_multichannel_exr(image_tensor: torch.Tensor, 
+                               alpha_tensor: torch.Tensor = None,
+                               depth_tensor: torch.Tensor = None,
+                               layers_dict: Dict[str, torch.Tensor] = None,
+                               cryptomatte_dict: Dict[str, torch.Tensor] = None,
+                               filename: str = None, bit_depth: int = 32, 
+                               compression: str = "zips") -> None:
+        """
+        Export multilayer EXR file with channels matching the loader's structure.
+        
+        Args:
+            image_tensor: Main RGB image tensor [1, H, W, 3]
+            alpha_tensor: Alpha channel tensor [1, H, W] (optional)
+            depth_tensor: Depth/Z-depth tensor [1, H, W, 1] or [1, H, W] (optional)
+            layers_dict: Dictionary of non-cryptomatte layers (optional)
+            cryptomatte_dict: Dictionary of cryptomatte layers (optional)
+            filename: Output filename
+            bit_depth: Bit depth (16 or 32)
+            compression: Compression type
+        """
+        ExrProcessor.check_oiio_availability()
+        
+        if filename is None:
+            raise ValueError("filename is required for EXR export")
+            
+        if image_tensor is None:
+            raise ValueError("image_tensor is required for EXR export")
+            
+        # Convert tensor to numpy and get dimensions
+        if image_tensor.ndim == 4 and image_tensor.shape[0] == 1:
+            rgb_np = image_tensor.squeeze(0).cpu().numpy()
+        else:
+            rgb_np = image_tensor.cpu().numpy()
+            
+        height, width = rgb_np.shape[:2]
+        
+        # Collect all channels to write
+        all_channels = {}
+        channel_names = []
+        
+        # Add main RGB channels
+        if rgb_np.shape[2] >= 3:
+            all_channels["R"] = rgb_np[:, :, 0].astype(np.float32)
+            all_channels["G"] = rgb_np[:, :, 1].astype(np.float32) 
+            all_channels["B"] = rgb_np[:, :, 2].astype(np.float32)
+            channel_names.extend(["R", "G", "B"])
+        
+        # Add alpha channel if provided
+        if alpha_tensor is not None:
+            if alpha_tensor.ndim == 3 and alpha_tensor.shape[0] == 1:
+                alpha_np = alpha_tensor.squeeze(0).cpu().numpy()
+            else:
+                alpha_np = alpha_tensor.cpu().numpy()
+            
+            # Ensure alpha is 2D and matches image dimensions
+            if len(alpha_np.shape) == 3 and alpha_np.shape[2] == 1:
+                alpha_np = alpha_np[:, :, 0]  # Remove channel dimension
+            elif len(alpha_np.shape) != 2:
+                debug_log(logger, "error", f"Invalid alpha shape: {alpha_np.shape}", 
+                         f"Alpha tensor has unsupported shape {alpha_np.shape}, expected 2D or 3D with 1 channel")
+                raise ValueError(f"Alpha tensor has unsupported shape {alpha_np.shape}")
+            
+            # Check if alpha matches image dimensions
+            if alpha_np.shape != (height, width):
+                debug_log(logger, "error", f"Alpha size mismatch: {alpha_np.shape} vs {(height, width)}", 
+                         f"Alpha tensor shape {alpha_np.shape} doesn't match image size {(height, width)}")
+                raise ValueError(f"Alpha tensor shape {alpha_np.shape} doesn't match image size {(height, width)}")
+            
+            all_channels["A"] = alpha_np.astype(np.float32)
+            channel_names.append("A")
+        
+        # Add depth channel if provided
+        if depth_tensor is not None:
+            # Handle different tensor formats - depth_tensor might be a batch
+            if depth_tensor.ndim == 4:
+                # 4D tensor: [batch, height, width, channels] or [batch, channels, height, width]
+                if depth_tensor.shape[0] == 1:
+                    # Single image in batch
+                    depth_np = depth_tensor.squeeze(0).cpu().numpy()
+                else:
+                    # Multiple images - this shouldn't happen in single image export
+                    debug_log(logger, "warning", f"Depth tensor has batch size {depth_tensor.shape[0]}, using first image", 
+                             f"Depth tensor shape {depth_tensor.shape}, using first image for single EXR export")
+                    depth_np = depth_tensor[0].cpu().numpy()
+            elif depth_tensor.ndim == 3:
+                # 3D tensor: [height, width, channels] or [batch=1, height, width]
+                depth_np = depth_tensor.cpu().numpy()
+                if depth_np.shape[0] == 1 and depth_np.shape[1] > 1 and depth_np.shape[2] > 1:
+                    # Likely [1, height, width] format
+                    depth_np = depth_np.squeeze(0)
+            else:
+                depth_np = depth_tensor.cpu().numpy()
+            
+            # Handle depth data - ensure it's single channel
+            if len(depth_np.shape) == 3:
+                if depth_np.shape[2] == 1:
+                    depth_np = depth_np[:, :, 0]  # Remove channel dimension
+                elif depth_np.shape[2] > 1:
+                    # If multi-channel, use first channel as depth
+                    num_channels = depth_np.shape[2]
+                    depth_np = depth_np[:, :, 0]
+                    debug_log(logger, "warning", "Multi-channel depth input, using first channel", 
+                             f"Depth tensor has {num_channels} channels, using first channel as Z")
+            elif len(depth_np.shape) != 2:
+                debug_log(logger, "error", f"Invalid depth shape: {depth_np.shape}", 
+                         f"Depth tensor has unsupported shape {depth_np.shape}, expected 2D or 3D")
+                raise ValueError(f"Depth tensor has unsupported shape {depth_np.shape}")
+            
+            # Check if depth matches image dimensions
+            if depth_np.shape != (height, width):
+                debug_log(logger, "error", f"Depth size mismatch: {depth_np.shape} vs {(height, width)}", 
+                         f"Depth tensor shape {depth_np.shape} doesn't match image size {(height, width)}")
+                raise ValueError(f"Depth tensor shape {depth_np.shape} doesn't match image size {(height, width)}")
+            
+            all_channels["Z"] = depth_np.astype(np.float32)
+            channel_names.append("Z")
+        
+        # Add layers from layers_dict (non-cryptomatte)
+        if layers_dict:
+            for layer_name, layer_tensor in layers_dict.items():
+                layer_np = layer_tensor.cpu().numpy()
+                if layer_np.ndim == 4 and layer_np.shape[0] == 1:
+                    layer_np = layer_np.squeeze(0)
+                
+                # Handle different layer types based on existing loader logic
+                if len(layer_np.shape) == 3 and layer_np.shape[2] == 3:
+                    # RGB layer (e.g., Beauty.R, Beauty.G, Beauty.B)
+                    all_channels[f"{layer_name}.R"] = layer_np[:, :, 0].astype(np.float32)
+                    all_channels[f"{layer_name}.G"] = layer_np[:, :, 1].astype(np.float32)
+                    all_channels[f"{layer_name}.B"] = layer_np[:, :, 2].astype(np.float32)
+                    channel_names.extend([f"{layer_name}.R", f"{layer_name}.G", f"{layer_name}.B"])
+                elif len(layer_np.shape) == 2:
+                    # Single channel layer (depth, mask, etc.)
+                    all_channels[layer_name] = layer_np.astype(np.float32)
+                    channel_names.append(layer_name)
+                else:
+                    debug_log(logger, "warning", f"Unsupported layer shape for {layer_name}", 
+                             f"Layer {layer_name} has unsupported shape {layer_np.shape}, skipping")
+        
+        # Add cryptomatte layers
+        if cryptomatte_dict:
+            for crypto_name, crypto_tensor in cryptomatte_dict.items():
+                crypto_np = crypto_tensor.cpu().numpy()
+                if crypto_np.ndim == 4 and crypto_np.shape[0] == 1:
+                    crypto_np = crypto_np.squeeze(0)
+                
+                if len(crypto_np.shape) == 3 and crypto_np.shape[2] == 3:
+                    # Cryptomatte RGB channels
+                    all_channels[f"{crypto_name}.R"] = crypto_np[:, :, 0].astype(np.float32)
+                    all_channels[f"{crypto_name}.G"] = crypto_np[:, :, 1].astype(np.float32)
+                    all_channels[f"{crypto_name}.B"] = crypto_np[:, :, 2].astype(np.float32)
+                    channel_names.extend([f"{crypto_name}.R", f"{crypto_name}.G", f"{crypto_name}.B"])
+                else:
+                    debug_log(logger, "warning", f"Unsupported cryptomatte shape for {crypto_name}",
+                             f"Cryptomatte {crypto_name} has unsupported shape {crypto_np.shape}, skipping")
+        
+        # Determine pixel type based on bit depth
+        if bit_depth == 16:
+            pixel_type = oiio.HALF
+            # Convert all channels to float16
+            for channel_name in all_channels:
+                all_channels[channel_name] = all_channels[channel_name].astype(np.float16)
+        else:  # 32-bit
+            pixel_type = oiio.FLOAT
+            # Already float32
+        
+        # Create ImageSpec with all channels
+        total_channels = len(all_channels)
+        spec = oiio.ImageSpec(width, height, total_channels, pixel_type)
+        spec.channelnames = channel_names
+        spec.attribute("compression", compression)
+        spec.attribute("Software", "COCO Tools")
+        
+        # Debug: Check all channel shapes before stacking
+        debug_log(logger, "info", f"Preparing to stack {len(channel_names)} channels", 
+                 f"Channel shapes: {[(name, all_channels[name].shape) for name in channel_names]}")
+        
+        # Validate all channels have the same 2D shape
+        expected_shape = (height, width)
+        for name in channel_names:
+            if all_channels[name].shape != expected_shape:
+                debug_log(logger, "error", f"Shape mismatch for channel {name}", 
+                         f"Channel {name} has shape {all_channels[name].shape}, expected {expected_shape}")
+                raise ValueError(f"Channel {name} has shape {all_channels[name].shape}, expected {expected_shape}")
+        
+        # Stack all channel data in the correct order
+        stacked_data = np.stack([all_channels[name] for name in channel_names], axis=2)
+        stacked_data = np.ascontiguousarray(stacked_data)
+        
+        # Write the file
+        buf = oiio.ImageBuf(spec)
+        buf.set_pixels(oiio.ROI(), stacked_data)
+        
+        if not buf.write(filename):
+            raise RuntimeError(f"Failed to write multilayer EXR: {oiio.geterror()}")
+            
+        debug_log(logger, "info", f"Exported multilayer EXR with {total_channels} channels",
+                 f"Successfully exported multilayer EXR: {filename} with channels: {channel_names}")
