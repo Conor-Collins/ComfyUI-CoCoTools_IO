@@ -26,8 +26,9 @@ class SequenceHandler:
         """Detect if the path contains a sequence pattern (#### or ###)"""
         if not path:
             return False
-        # Look for # patterns in the path
-        return bool(re.search(r'#+', path))
+        # Only check filename portion, require 2+ consecutive # characters
+        basename = os.path.basename(path)
+        return bool(re.search(r'#{2,}', basename))
     
     @staticmethod
     def get_padding_from_template(template: str) -> int:
@@ -41,88 +42,99 @@ class SequenceHandler:
     def replace_frame_number(filename: str, frame_number: int, padding_length: int = None) -> str:
         """
         Replace frame number in filename with proper padding
-        
+
         Args:
             filename: Template filename with #### placeholder or existing frame number
             frame_number: The frame number to insert
             padding_length: Number of digits to pad to (auto-detected if None)
-        
+
         Returns:
             Filename with properly padded frame number
         """
-        # Auto-detect padding if not specified
+        # Find the #### placeholder pattern
+        match = re.search(r'#+', filename)
+        if not match:
+            return filename
+
+        # Use the placeholder's length for padding if not specified
         if padding_length is None:
-            padding_length = SequenceHandler.get_padding_from_template(filename)
-        
-        # Pattern to match either #### placeholder or existing frame numbers
-        pattern = r'#+|\d+'
-        
+            padding_length = len(match.group(0))
+
         # Create padded frame number
         padded_frame = str(frame_number).zfill(padding_length)
-        
-        # Replace with padded frame number
-        def replacer(match):
-            return padded_frame
-        
-        return re.sub(pattern, replacer, filename)
+
+        # Replace only the #### placeholder, leave all other characters untouched
+        return filename[:match.start()] + padded_frame + filename[match.end():]
     
     @staticmethod
-    def extract_frame_number_from_path(file_path: str) -> Optional[int]:
-        """Extract frame number from a file path"""
-        # Look for sequences of digits that could be frame numbers
+    def extract_frame_number_from_path(file_path: str, pattern: str = None) -> Optional[int]:
+        """Extract frame number from a file path
+
+        Args:
+            file_path: Path to the file
+            pattern: Original sequence pattern (e.g., 'render_1080p_####.exr')
+                     to determine the exact frame number position
+        """
         basename = os.path.basename(file_path)
-        matches = re.findall(r'\d+', basename)
-        
-        # Take the last sequence of digits (usually the frame number)
+
+        # If pattern is provided, extract from the known position
+        if pattern:
+            pattern_basename = os.path.basename(pattern)
+            hash_match = re.search(r'#+', pattern_basename)
+            if hash_match:
+                hash_count = len(hash_match.group(0))
+                before = re.escape(pattern_basename[:hash_match.start()])
+                after = re.escape(pattern_basename[hash_match.end():])
+                extraction_re = before + r'(\d{' + str(hash_count) + '})' + after
+                match = re.match(extraction_re, basename)
+                if match:
+                    return int(match.group(1))
+
+        # Fallback: prefer the last numeric sequence before the extension
+        name_without_ext = os.path.splitext(basename)[0]
+        matches = re.findall(r'\d+', name_without_ext)
         if matches:
-            # Prioritize 3-4 digit numbers (common frame number lengths)
-            for match in reversed(matches):
-                if 3 <= len(match) <= 4:
-                    return int(match)
-            # Fall back to last number found
             return int(matches[-1])
         return None
     
     @staticmethod
     def find_sequence_files(pattern_path: str) -> List[str]:
         """Find all files matching the sequence pattern"""
-        # Convert #### pattern to glob pattern
-        glob_pattern = pattern_path.replace('####', '*')
-        
+        # Find the hash placeholder and count its width
+        hash_match = re.search(r'#+', pattern_path)
+        if not hash_match:
+            return []
+
+        hash_count = len(hash_match.group(0))
+
+        # Convert #### pattern to glob pattern (? matches single char)
+        glob_pattern = pattern_path[:hash_match.start()] + '?' * hash_count + pattern_path[hash_match.end():]
+
         # Find all matching files
         matching_files = glob.glob(glob_pattern)
-        
-        # Create regex pattern - escape special regex characters but keep path separators
-        # Convert pattern to regex: replace #### with exactly 4 digits
-        escaped_pattern = re.escape(pattern_path)
-        
-        # Replace escaped #### with regex for 4 digits - handle both Windows and Unix escaping
-        if '\\\\#\\\\#\\\\#\\\\#' in escaped_pattern:
-            pattern_for_regex = escaped_pattern.replace('\\\\#\\\\#\\\\#\\\\#', r'\d{4}')
-        elif '\\#\\#\\#\\#' in escaped_pattern:
-            pattern_for_regex = escaped_pattern.replace('\\#\\#\\#\\#', r'\d{4}')
-        else:
-            # Direct replacement if no escaping occurred
-            pattern_for_regex = escaped_pattern.replace('####', r'\d{4}')
-        
+
+        # Build regex by escaping fixed parts and inserting digit pattern
+        before = re.escape(pattern_path[:hash_match.start()])
+        after = re.escape(pattern_path[hash_match.end():])
+        pattern_for_regex = before + r'\d{' + str(hash_count) + '}' + after
+
         regex_pattern = re.compile(pattern_for_regex)
-        
+
         # Debug logging
-        debug_log(logger, "debug", f"Pattern matching debug", 
-                 f"Original: {pattern_path}\\nEscaped: {escaped_pattern}\\nRegex: {pattern_for_regex}\\nMatching files: {len(matching_files)}")
-        
+        debug_log(logger, "debug", f"Pattern matching debug",
+                 f"Original: {pattern_path}\\nRegex: {pattern_for_regex}\\nMatching files: {len(matching_files)}")
+
         valid_files = []
         for file_path in matching_files:
             if regex_pattern.match(file_path):
                 valid_files.append(file_path)
             else:
-                # Debug first few failures
                 if len(valid_files) < 3:
                     debug_log(logger, "debug", f"No match", f"File: {file_path}\\nPattern: {pattern_for_regex}")
-        
-        debug_log(logger, "info", f"Found {len(valid_files)} sequence files", 
+
+        debug_log(logger, "info", f"Found {len(valid_files)} sequence files",
                  f"Pattern: {pattern_path}, Found {len(valid_files)} files matching pattern")
-        
+
         return sorted(valid_files)
     
     @staticmethod
