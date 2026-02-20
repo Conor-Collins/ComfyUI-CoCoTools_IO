@@ -12,10 +12,7 @@ from .modules.znormalize import ZNormalizeNode
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
-# Explicitly set the web directory path relative to this file
-import os
-NODE_DIR = os.path.dirname(os.path.realpath(__file__))
-WEB_DIRECTORY = os.path.join(NODE_DIR, "js")
+WEB_DIRECTORY = "./js"
 
 # Add all available node classes
 NODE_CLASS_MAPPINGS.update({

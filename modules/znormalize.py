@@ -77,7 +77,7 @@ class ZNormalizeNode:
             for idx in sample_indices:
                 try:
                     samples.append(f"{image[idx].item():.6f}")
-                except:
+                except (IndexError, RuntimeError):
                     pass
             sample_hash = "_".join(samples)
 
@@ -145,12 +145,3 @@ class ZNormalizeNode:
         except Exception as e:
             debug_log(logger, "error", "Depth normalization failed", f"Error normalizing depth image: {str(e)}")
             raise
-
-# Node registration
-# NODE_CLASS_MAPPINGS = {
-#     "znormalize": znormalize
-# }
-
-# NODE_DISPLAY_NAME_MAPPINGS = {
-#     "znormalize": "Z Normalize"
-# }
