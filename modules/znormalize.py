@@ -54,8 +54,37 @@ class ZNormalizeNode:
     CATEGORY = "COCO Tools/Processing"
     
     @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("NaN")  # Always execute
+    def IS_CHANGED(cls, image, min_depth, max_depth, **kwargs):
+        """
+        Smart caching based on input tensor properties and depth parameters.
+        Only re-execute when inputs or parameters actually change.
+        """
+        try:
+            # Hash based on tensor properties
+            tensor_hash = f"{image.shape}_{image.dtype}_{image.device}"
+
+            # Include depth range parameters
+            param_hash = f"{min_depth}_{max_depth}"
+
+            # Sample a few pixel values for content-aware caching
+            # Take samples from corners and center to detect actual data changes
+            sample_indices = [
+                (0, 0, 0, 0),  # Top-left of first image
+                (0, -1, -1, 0),  # Bottom-right of first image
+                (0, image.shape[1]//2, image.shape[2]//2, 0),  # Center of first image
+            ]
+            samples = []
+            for idx in sample_indices:
+                try:
+                    samples.append(f"{image[idx].item():.6f}")
+                except:
+                    pass
+            sample_hash = "_".join(samples)
+
+            return f"{tensor_hash}_{param_hash}_{sample_hash}"
+        except Exception:
+            # If anything goes wrong, always execute
+            return float("NaN")
 
     def normalize_depth(self, image, min_depth, max_depth):
         """

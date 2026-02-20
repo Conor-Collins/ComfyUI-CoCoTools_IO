@@ -97,8 +97,37 @@ class ColorspaceNode:
     CATEGORY = "COCO Tools/Processing"
     
     @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("NaN")  # Always execute
+    def IS_CHANGED(cls, images, from_colorspace, to_colorspace, **kwargs):
+        """
+        Smart caching based on input tensor properties and colorspace parameters.
+        Only re-execute when inputs or parameters actually change.
+        """
+        try:
+            # Hash based on tensor properties
+            tensor_hash = f"{images.shape}_{images.dtype}_{images.device}"
+
+            # Include colorspace parameters
+            param_hash = f"{from_colorspace}_{to_colorspace}"
+
+            # Sample a few pixel values for content-aware caching
+            # Take samples from corners and center to detect actual data changes
+            sample_indices = [
+                (0, 0, 0, 0),  # Top-left of first image
+                (0, -1, -1, 0),  # Bottom-right of first image
+                (0, images.shape[1]//2, images.shape[2]//2, 0),  # Center of first image
+            ]
+            samples = []
+            for idx in sample_indices:
+                try:
+                    samples.append(f"{images[idx].item():.6f}")
+                except:
+                    pass
+            sample_hash = "_".join(samples)
+
+            return f"{tensor_hash}_{param_hash}_{sample_hash}"
+        except Exception:
+            # If anything goes wrong, always execute
+            return float("NaN")
 
     def _is_encoded_colorspace(self, colorspace_name: str) -> bool:
         """Check if a colorspace name indicates encoded (non-linear) data."""
