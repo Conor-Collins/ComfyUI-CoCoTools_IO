@@ -53,22 +53,32 @@ class ImageLoader:
 
         try:
             with Image.open(image_path) as img:
-                # Apply EXIF orientation and convert to RGB
+                # Preserve original format before any transforms
+                original_format = img.format
+
+                # Apply EXIF orientation
                 img = ImageOps.exif_transpose(img)
-                rgb_image = img.convert("RGB")
 
-                # Detect bit depth and convert to tensor
-                info = self.detect_bit_depth(image_path, rgb_image)
+                # Detect bit depth from original mode BEFORE RGB conversion
+                original_mode = img.mode
+                info = self.detect_bit_depth(image_path, original_mode, original_format)
                 bit_depth = info["bit_depth"]
-                rgb_tensor = self.pil2tensor(rgb_image, bit_depth)
 
-                # Handle alpha channel if present
-                alpha_tensor = (
-                    self.pil2tensor(img.split()[-1], bit_depth).unsqueeze(-1)
-                    if img.mode == "RGBA" else torch.ones_like(rgb_tensor[:, :, :, :1])
-                )
+                # Extract alpha channel before RGB conversion
+                has_alpha = original_mode in ("RGBA", "LA", "PA")
+                if has_alpha:
+                    alpha_tensor = self.pil2tensor(img.split()[-1], 8).unsqueeze(0)
 
-                # Normalize tensors if requested
+                # Convert to RGB and create tensor
+                # convert("RGB") always produces 8-bit pixel data
+                rgb_image = img.convert("RGB")
+                rgb_tensor = self.pil2tensor(rgb_image, 8)
+
+                # Default opaque alpha mask matching MASK format [B,H,W]
+                if not has_alpha:
+                    alpha_tensor = torch.ones(1, rgb_tensor.shape[1], rgb_tensor.shape[2])
+
+                # Apply min-max range normalization if requested
                 if normalize:
                     rgb_tensor = self.normalize_image(rgb_tensor)
                     alpha_tensor = self.normalize_image(alpha_tensor)
@@ -77,7 +87,8 @@ class ImageLoader:
                 metadata = {
                     "file_path": image_path,
                     "tensor_shape": tuple(rgb_tensor.shape),
-                    "format": os.path.splitext(image_path)[1].lower()
+                    "format": os.path.splitext(image_path)[1].lower(),
+                    "bit_depth": bit_depth
                 }
 
                 return rgb_tensor, alpha_tensor, str(metadata)
@@ -89,28 +100,31 @@ class ImageLoader:
     @staticmethod
     def normalize_image(image: torch.Tensor) -> torch.Tensor:
         """
-        Normalize a tensor to the 0-1 range.
+        Normalize a tensor to the 0-1 range via min-max stretching.
+        Returns the image unchanged if all values are identical.
         """
         min_val, max_val = image.min(), image.max()
-        return (image - min_val) / (max_val - min_val) if min_val != max_val else torch.zeros_like(image)
+        if min_val == max_val:
+            return image
+        return (image - min_val) / (max_val - min_val)
 
     @staticmethod
-    def detect_bit_depth(image_path: str, image: Image.Image = None) -> dict:
+    def detect_bit_depth(image_path: str, original_mode: str = None, original_format: str = None) -> dict:
         """
-        Detect the bit depth of an image. Supports a range of bit depths for accurate conversion.
+        Detect the bit depth of an image from its original mode before any conversion.
         """
         mode_to_bit_depth = {
             "1": 1, "L": 8, "P": 8, "RGB": 8, "RGBA": 8,
-            "I;16": 16, "I": 32, "F": 32
+            "LA": 8, "PA": 8, "I;16": 16, "I": 32, "F": 32
         }
 
-        if image is None:
+        if original_mode is not None:
+            mode = original_mode
+            fmt = original_format
+        else:
             with Image.open(image_path) as img:
                 mode = img.mode
                 fmt = img.format
-        else:
-            mode = image.mode
-            fmt = image.format
 
         bit_depth = mode_to_bit_depth.get(mode, 8)
         return {"bit_depth": bit_depth, "mode": mode, "format": fmt}
@@ -136,12 +150,3 @@ class ImageLoader:
             image_tensor = image_tensor.unsqueeze(0)
 
         return image_tensor
-
-
-# NODE_CLASS_MAPPINGS = {
-#     "coco_loader": coco_loader
-# }
-
-# NODE_DISPLAY_NAME_MAPPINGS = {
-#     "coco_loader": "Load Image (supports jpg, png, tif, avif, webp)"
-# }
