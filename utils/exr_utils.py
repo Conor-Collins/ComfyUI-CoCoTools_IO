@@ -304,9 +304,9 @@ class ExrProcessor:
             xyz_tensor = xyz_tensor.unsqueeze(0)  # [1, H, W, 3]
             
             if normalize:
-                max_abs = xyz_tensor.abs().max()
-                if max_abs > 0:
-                    xyz_tensor = xyz_tensor / max_abs
+                magnitude = torch.sqrt((xyz_tensor ** 2).sum(dim=-1, keepdim=True))
+                magnitude = torch.clamp(magnitude, min=1e-8)
+                xyz_tensor = xyz_tensor / magnitude
             
             layers_dict[group_name] = xyz_tensor
         except ValueError as e:
@@ -423,7 +423,9 @@ class ExrProcessor:
             metadata['layer_groups'][base_name] = suffixes
             
             if is_crypto_layer_group or in_crypto_dict:
-                cryptomatte_dict[group_name] = [cryptomatte_dict.get(part, None) for part in suffixes]
+                valid_tensors = [cryptomatte_dict[part] for part in suffixes if part in cryptomatte_dict and cryptomatte_dict[part] is not None]
+                if valid_tensors:
+                    cryptomatte_dict[group_name] = torch.cat(valid_tensors, dim=0)
 
     @staticmethod
     def store_layer_type_metadata(layers_dict, metadata):
@@ -567,6 +569,8 @@ class ExrProcessor:
             layers_dict = {}
             cryptomatte_dict = {}
             all_channel_names = []
+            rgb_tensor = None
+            alpha_tensor = None
             
             for subimage_idx, subimage_info in enumerate(metadata["subimages"]):
                 if subimage_idx not in all_subimage_data:
@@ -649,8 +653,6 @@ class ExrProcessor:
                                 layers_dict[subimage_name] = torch.zeros((1, height, width, 3))
                 
                 if subimage_idx == 0:
-                    channel_groups = ExrProcessor.get_channel_groups(channel_names)
-                    
                     for group_name, suffixes in channel_groups.items():
                         if group_name in ('R', 'G', 'B', 'A', 'RGB', 'XYZ'):
                             continue
@@ -710,7 +712,28 @@ class ExrProcessor:
             
             ExrProcessor.store_layer_type_metadata(layers_dict, metadata)
             
-            metadata_json = json.dumps(metadata)
+            def _safe_serialize(obj):
+                """Convert non-serializable OIIO/numpy types to JSON-safe values"""
+                if isinstance(obj, (np.integer,)):
+                    return int(obj)
+                if isinstance(obj, (np.floating,)):
+                    return float(obj)
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                if isinstance(obj, dict):
+                    return {k: _safe_serialize(v) for k, v in obj.items()}
+                if isinstance(obj, (list, tuple)):
+                    return [_safe_serialize(v) for v in obj]
+                try:
+                    json.dumps(obj)
+                    return obj
+                except (TypeError, ValueError):
+                    return str(obj)
+
+            try:
+                metadata_json = json.dumps(_safe_serialize(metadata))
+            except (TypeError, ValueError):
+                metadata_json = json.dumps({"error": "metadata serialization failed", "file_path": image_path})
             
             debug_log(logger, "info", f"Loaded {len(layers_dict)} layers: {format_layer_names(list(layers_dict.keys()))}", 
                      f"Available EXR layers: {list(layers_dict.keys())}")
