@@ -34,61 +34,59 @@ logger = logging.getLogger(__name__)
 
 class ColorspaceNode:
     """Simplified colorspace converter using colour-science library."""
-    
+
+    # Map user-friendly names to colour-science names
+    colorspace_mapping = {
+        # ACES colorspaces
+        "ACES2065-1": "ACES2065-1",  # Linear scene-referred ACES
+        "ACEScg": "ACEScg",          # Linear scene-referred ACEScg
+        "ACEScct": "ACEScct",        # Log-encoded ACEScg with toe
+        "ACEScc": "ACEScc",          # Log-encoded ACES
+
+        # sRGB and Rec.709
+        "sRGB": "sRGB",                  # Standard display-referred sRGB (non-linear)
+        "sRGB Linear": "sRGB",           # Linear version of sRGB
+        "Rec.709": "ITU-R BT.709",       # Standard Rec.709 (scene-referred)
+        "Rec.709 Linear": "ITU-R BT.709", # Linear version of Rec.709
+
+        # Display P3
+        "Display P3": "Display P3",       # Apple's Display P3 (non-linear)
+        "Display P3 Linear": "Display P3", # Linear version of Display P3
+
+        # Rec.2020
+        "Rec.2020": "ITU-R BT.2020",       # Standard Rec.2020 (non-linear)
+        "Rec.2020 Linear": "ITU-R BT.2020", # Linear version of Rec.2020
+
+        # Adobe RGB
+        "Adobe RGB": "Adobe RGB (1998)",       # Standard Adobe RGB (non-linear)
+        "Adobe RGB Linear": "Adobe RGB (1998)", # Linear version of Adobe RGB
+
+        # Raw/passthrough
+        "Raw": "Raw",  # No colorspace conversion
+    }
+
+    # Track which colorspaces need encoding/decoding
+    encoded_spaces = {
+        "sRGB",  # Standard sRGB is encoded (non-linear)
+        "ACEScct",  # ACEScct is an encoded version of ACEScg
+        "ACEScc",   # ACEScc is an encoded version of ACES2065-1
+    }
+
+    # Available colorspaces for the UI
+    available_colorspaces = list(colorspace_mapping.keys())
+
     def __init__(self):
         self.type = "ColorspaceNode"
-        
-        # Map user-friendly names to colour-science names
-        self.colorspace_mapping = {
-            # ACES colorspaces
-            "ACES2065-1": "ACES2065-1",  # Linear scene-referred ACES
-            "ACEScg": "ACEScg",          # Linear scene-referred ACEScg
-            "ACEScct": "ACEScct",        # Log-encoded ACEScg with toe
-            "ACEScc": "ACEScc",          # Log-encoded ACES
-            
-            # sRGB and Rec.709
-            "sRGB": "sRGB",                  # Standard display-referred sRGB (non-linear)
-            "sRGB Linear": "sRGB",           # Linear version of sRGB
-            "Rec.709": "ITU-R BT.709",       # Standard Rec.709 (scene-referred)
-            "Rec.709 Linear": "ITU-R BT.709", # Linear version of Rec.709
-            
-            # Display P3
-            "Display P3": "Display P3",       # Apple's Display P3 (non-linear)
-            "Display P3 Linear": "Display P3", # Linear version of Display P3
-            
-            # Rec.2020
-            "Rec.2020": "ITU-R BT.2020",       # Standard Rec.2020 (non-linear)
-            "Rec.2020 Linear": "ITU-R BT.2020", # Linear version of Rec.2020
-            
-            # Adobe RGB
-            "Adobe RGB": "Adobe RGB (1998)",       # Standard Adobe RGB (non-linear)
-            "Adobe RGB Linear": "Adobe RGB (1998)", # Linear version of Adobe RGB
-            
-            # Raw/passthrough
-            "Raw": "Raw",  # No colorspace conversion
-        }
-        
-        # Track which colorspaces need encoding/decoding
-        self.encoded_spaces = {
-            "sRGB",  # Standard sRGB is encoded (non-linear)
-            "ACEScct",  # ACEScct is an encoded version of ACEScg
-            "ACEScc",   # ACEScc is an encoded version of ACES2065-1
-        }
-        
-        # Available colorspaces for the UI
-        self.available_colorspaces = list(self.colorspace_mapping.keys())
-        
         logger.debug(f"Initialized with {len(self.available_colorspaces)} colorspaces")
-    
+
     @classmethod
     def INPUT_TYPES(cls):
         """Define input types."""
-        instance = cls()
         return {
             "required": {
                 "images": ("IMAGE",),
-                "from_colorspace": (instance.available_colorspaces,),
-                "to_colorspace": (instance.available_colorspaces,),
+                "from_colorspace": (cls.available_colorspaces,),
+                "to_colorspace": (cls.available_colorspaces,),
             },
         }
 
@@ -120,7 +118,7 @@ class ColorspaceNode:
             for idx in sample_indices:
                 try:
                     samples.append(f"{images[idx].item():.6f}")
-                except:
+                except (IndexError, RuntimeError):
                     pass
             sample_hash = "_".join(samples)
 
@@ -159,24 +157,24 @@ class ColorspaceNode:
         return False
 
     def _apply_gamma_encoding(self, rgb: np.ndarray, colorspace: str) -> np.ndarray:
-        """Apply appropriate gamma encoding based on colorspace."""
+        """Apply gamma encoding (linear → encoded) using inverse EOTF."""
         # Handle standard colorspaces
-        if colorspace == "sRGB" or "sRGB" in colorspace and "Linear" not in colorspace:
-            # Apply sRGB EOTF (gamma curve)
-            return colour.models.eotf_sRGB(rgb)
-        elif colorspace == "Rec.709" or "Rec.709" in colorspace and "Linear" not in colorspace:
-            # Rec.709 uses the same EOTF as sRGB
-            return colour.models.eotf_sRGB(rgb)
-        elif colorspace == "Display P3" or "Display P3" in colorspace and "Linear" not in colorspace:
-            # Display P3 uses the same EOTF as sRGB
-            return colour.models.eotf_sRGB(rgb)
-        elif colorspace == "Rec.2020" or "Rec.2020" in colorspace and "Linear" not in colorspace:
-            # Rec.2020 uses a slightly different EOTF, but we'll use sRGB for simplicity
-            return colour.models.eotf_sRGB(rgb)
-        elif colorspace == "Adobe RGB" or "Adobe RGB" in colorspace and "Linear" not in colorspace:
+        if (colorspace == "sRGB" or "sRGB" in colorspace) and "Linear" not in colorspace:
+            # Apply inverse sRGB EOTF (linear → encoded)
+            return colour.models.eotf_inverse_sRGB(rgb)
+        elif (colorspace == "Rec.709" or "Rec.709" in colorspace) and "Linear" not in colorspace:
+            # Rec.709 uses the same transfer function as sRGB
+            return colour.models.eotf_inverse_sRGB(rgb)
+        elif (colorspace == "Display P3" or "Display P3" in colorspace) and "Linear" not in colorspace:
+            # Display P3 uses the same transfer function as sRGB
+            return colour.models.eotf_inverse_sRGB(rgb)
+        elif (colorspace == "Rec.2020" or "Rec.2020" in colorspace) and "Linear" not in colorspace:
+            # Rec.2020 uses BT.1886 transfer function
+            return colour.models.eotf_inverse_BT1886(rgb)
+        elif (colorspace == "Adobe RGB" or "Adobe RGB" in colorspace) and "Linear" not in colorspace:
             # Adobe RGB uses a gamma of 2.2
             return np.power(np.maximum(rgb, 0), 1/2.2)
-            
+
         # Handle ACES colorspaces
         elif colorspace == "ACEScc":
             # Apply ACEScc encoding (log encoding for ACES)
@@ -184,36 +182,36 @@ class ColorspaceNode:
         elif colorspace == "ACEScct":
             # Apply ACEScct encoding (log encoding with toe for ACEScg)
             return colour.models.log_encoding_ACEScct(rgb)
-            
+
         # Handle other gamma values
         elif "Gamma 2.2" in colorspace:
             return np.power(np.maximum(rgb, 0), 1/2.2)
         elif "Gamma 2.4" in colorspace:
             return np.power(np.maximum(rgb, 0), 1/2.4)
-            
+
         # Linear colorspaces don't need encoding
         else:
             return rgb
 
     def _apply_gamma_decoding(self, rgb: np.ndarray, colorspace: str) -> np.ndarray:
-        """Apply appropriate gamma decoding based on colorspace."""
+        """Apply gamma decoding (encoded → linear) using EOTF."""
         # Handle standard colorspaces
-        if colorspace == "sRGB" or "sRGB" in colorspace and "Linear" not in colorspace:
-            # Apply inverse sRGB EOTF
-            return colour.models.eotf_inverse_sRGB(rgb)
-        elif colorspace == "Rec.709" or "Rec.709" in colorspace and "Linear" not in colorspace:
-            # Rec.709 uses the same EOTF as sRGB
-            return colour.models.eotf_inverse_sRGB(rgb)
-        elif colorspace == "Display P3" or "Display P3" in colorspace and "Linear" not in colorspace:
-            # Display P3 uses the same EOTF as sRGB
-            return colour.models.eotf_inverse_sRGB(rgb)
-        elif colorspace == "Rec.2020" or "Rec.2020" in colorspace and "Linear" not in colorspace:
-            # Rec.2020 uses a slightly different EOTF, but we'll use sRGB for simplicity
-            return colour.models.eotf_inverse_sRGB(rgb)
-        elif colorspace == "Adobe RGB" or "Adobe RGB" in colorspace and "Linear" not in colorspace:
+        if (colorspace == "sRGB" or "sRGB" in colorspace) and "Linear" not in colorspace:
+            # Apply sRGB EOTF (encoded → linear)
+            return colour.models.eotf_sRGB(rgb)
+        elif (colorspace == "Rec.709" or "Rec.709" in colorspace) and "Linear" not in colorspace:
+            # Rec.709 uses the same transfer function as sRGB
+            return colour.models.eotf_sRGB(rgb)
+        elif (colorspace == "Display P3" or "Display P3" in colorspace) and "Linear" not in colorspace:
+            # Display P3 uses the same transfer function as sRGB
+            return colour.models.eotf_sRGB(rgb)
+        elif (colorspace == "Rec.2020" or "Rec.2020" in colorspace) and "Linear" not in colorspace:
+            # Rec.2020 uses BT.1886 transfer function
+            return colour.models.eotf_BT1886(rgb)
+        elif (colorspace == "Adobe RGB" or "Adobe RGB" in colorspace) and "Linear" not in colorspace:
             # Adobe RGB uses a gamma of 2.2
             return np.power(np.maximum(rgb, 0), 2.2)
-            
+
         # Handle ACES colorspaces
         elif colorspace == "ACEScc":
             # Apply ACEScc decoding (inverse log encoding for ACES)
@@ -221,13 +219,13 @@ class ColorspaceNode:
         elif colorspace == "ACEScct":
             # Apply ACEScct decoding (inverse log encoding with toe for ACEScg)
             return colour.models.log_decoding_ACEScct(rgb)
-            
+
         # Handle other gamma values
         elif "Gamma 2.2" in colorspace:
             return np.power(np.maximum(rgb, 0), 2.2)
         elif "Gamma 2.4" in colorspace:
             return np.power(np.maximum(rgb, 0), 2.4)
-            
+
         # Linear colorspaces don't need decoding
         else:
             return rgb
@@ -365,43 +363,3 @@ class ColorspaceNode:
             import traceback
             logger.error(traceback.format_exc())
             return (images,)
-
-# Test function to verify colour-science setup
-def test_colour_science_setup():
-    """Test that colour-science is working correctly."""
-    try:
-        # Test basic functionality
-        test_rgb = np.array([[[0.18, 0.18, 0.18]]])
-        
-        # Test sRGB encoding
-        encoded = colour.models.eotf_sRGB(test_rgb)
-        print(f"sRGB encoding test: {test_rgb.flatten()} -> {encoded.flatten()}")
-        
-        # Test colorspace conversion
-        converted = colour.RGB_to_RGB(
-            test_rgb,
-            input_colourspace='ITU-R BT.709',
-            output_colourspace='ACEScg',
-            apply_cctf_decoding=False,
-            apply_cctf_encoding=False
-        )
-        print(f"Rec.709 to ACEScg: {test_rgb.flatten()} -> {converted.flatten()}")
-        
-        print("colour-science setup test passed!")
-        return True
-        
-    except Exception as e:
-        print(f"colour-science setup test failed: {e}")
-        return False
-
-# Register the node
-# NODE_CLASS_MAPPINGS = {
-#     "ColorspaceNode": colorspace,
-# }
-
-# NODE_DISPLAY_NAME_MAPPINGS = {
-#     "ColorspaceNode": "Colorspace",
-# }
-
-if __name__ == "__main__":
-    test_colour_science_setup()
