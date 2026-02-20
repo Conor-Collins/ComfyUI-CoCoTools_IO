@@ -89,12 +89,10 @@ class SaverNode:
                 "save_mode": (["single", "sequence"], {
                     "default": "single",
                     "description": "Save mode: single files or sequence pattern",
-                    "formats": save_mode_widgets
                 }),
                 "use_versioning": ("BOOLEAN", {
                     "default": False,
                     "description": "Enable version numbering",
-                    "formats": versioning_widgets
                 }),
                 "file_type": (["exr", "png", "jpg", "webp", "tiff"], {"default": "png", "formats": format_widgets}),
             },
@@ -125,7 +123,8 @@ class SaverNode:
             # Sample 10% of pixels for large images
             total_pixels = image.shape[0] * image.shape[1]
             if total_pixels > 1000000:  # 1MP
-                indices = np.random.choice(total_pixels, int(total_pixels * sample_rate), replace=False)
+                rng = np.random.default_rng(42)
+                indices = rng.choice(total_pixels, int(total_pixels * sample_rate), replace=False)
                 flat_img = image.reshape(-1, 3)
                 sampled = flat_img[indices]
                 return np.allclose(sampled[:, 0], sampled[:, 1], rtol=0.01) and \
@@ -155,32 +154,35 @@ class SaverNode:
         
         return img[..., 0:1]  # Fallback for 2-channel images
 
-    def prepare_image(self, img_tensor: torch.Tensor, save_as_grayscale: bool) -> np.ndarray:
+    def prepare_image(self, img_tensor: torch.Tensor, save_as_grayscale: bool, file_type: str = "png") -> np.ndarray:
         """Convert tensor to numpy and prepare channels"""
         # Convert from tensor
         if img_tensor.ndim == 4 and img_tensor.shape[0] == 1:
             img_np = img_tensor.squeeze(0).cpu().numpy()
         else:
             img_np = img_tensor.cpu().numpy()
-        
-        # Ensure float32 [0,1] range
-        img_np = np.clip(img_np, 0, 1).astype(np.float32)
-        
+
+        # Clip range based on format: EXR preserves full HDR range, others clip to [0,1]
+        if file_type == "exr":
+            img_np = img_np.astype(np.float32)
+        else:
+            img_np = np.clip(img_np, 0, 1).astype(np.float32)
+
         # Handle channels
         if len(img_np.shape) == 2:
             img_np = img_np[..., np.newaxis]
-        
+
         # Convert to grayscale if explicitly requested (don't auto-detect for solid colors)
         if save_as_grayscale:
             img_np = self.convert_to_grayscale(img_np)
-        
+
         return img_np
 
     def save_exr(self, img: np.ndarray, path: str, bit_depth: int, compression: str) -> None:
         """Save EXR with proper float handling"""
-        # Convert to appropriate type based on bit depth
+        # Keep data as float32; OIIO handles half-float conversion internally
         if bit_depth == 16:
-            data = img.astype(np.float16)
+            data = img.astype(np.float32)
             pixel_type = oiio.HALF
         else:  # 32
             data = img.astype(np.float32)
@@ -279,7 +281,7 @@ class SaverNode:
         
         # Provide format-specific defaults for missing inputs
         if bit_depth is None:
-            bit_depth = "16" if file_type in ["exr", "png", "tiff"] else "8"
+            bit_depth = "32" if file_type == "exr" else "16" if file_type in ["png", "tiff"] else "8"
         
         if quality is None:
             quality = 95  # Default for JPG/WebP
@@ -328,8 +330,7 @@ class SaverNode:
             
             # Process each image - handle single vs sequence mode
             for i, img_tensor in enumerate(images):
-                # Prepare image (all formats start from float32 [0,1])
-                img_np = self.prepare_image(img_tensor, save_as_grayscale)
+                img_np = self.prepare_image(img_tensor, save_as_grayscale, file_type)
                 
                 # Build output path based on mode
                 if is_sequence_mode and SequenceHandler.detect_sequence_pattern(filename):
@@ -392,11 +393,3 @@ class SaverNode:
         except Exception as e:
             debug_log(logger, "error", "Save operation failed", f"Saver error: {str(e)}")
             raise RuntimeError(f"Saver error: {str(e)}") from e
-
-# NODE_CLASS_MAPPINGS = {
-#     "saver": saver,
-# }
-
-# NODE_DISPLAY_NAME_MAPPINGS = {
-#     "saver": "Image Saver"
-# }
