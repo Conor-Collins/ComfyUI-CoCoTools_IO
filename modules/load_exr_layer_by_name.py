@@ -1,6 +1,6 @@
 import torch
 import logging
-from typing import Dict, List, Union, Any
+from typing import Dict, List, Tuple, Union, Any
 
 # Import centralized logging setup
 try:
@@ -66,7 +66,7 @@ class LoadExrLayerByName:
         return float("NaN")  # Always execute
     
     def process_layer(self, layers: Dict[str, torch.Tensor], layer_name: str, 
-                     conversion: str = "Auto") -> List[Union[torch.Tensor, None]]:
+                     conversion: str = "Auto") -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Extract a specific layer from the layers dictionary.
         
@@ -76,13 +76,13 @@ class LoadExrLayerByName:
             conversion: How to convert the layer (Auto, To RGB, To Mask)
             
         Returns:
-            List containing [image, mask] tensors
+            Tuple containing (image, mask) tensors
         """
         # Check if we have any layers at all
         if not layers or len(layers) == 0:
             debug_log(logger, "warning", "No layers available", "No layers available in the input")
-            return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
-            
+            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
+
         # Log the available layers for debugging
         # debug_log(logger, "info", f"Found {len(layers)} layers: {format_layer_names(list(layers.keys()))}", 
         #          f"Available layers: {list(layers.keys())}")
@@ -140,13 +140,13 @@ class LoadExrLayerByName:
                                 debug_log(logger, "info", "Using first available layer", 
                                          f"Using first available layer: {layer_name}")
                             else:
-                                return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
+                                return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
         
         # If no layer is specified or "none" is selected, return empty tensors
         if not layer_name or layer_name == "none":
             debug_log(logger, "warning", "No layer specified", "No layer specified, returning empty tensors")
-            return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
-        
+            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
+
         # Get the requested layer
         layer_tensor = layers[layer_name]
         
@@ -231,15 +231,15 @@ class LoadExrLayerByName:
             # Unknown format, log error
             debug_log(logger, "error", "Unsupported tensor shape", 
                      f"Layer '{layer_name}' has an unsupported tensor shape: {layer_tensor.shape}")
-            return [torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))]
-        
+            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
+
         # Set placeholder for any None outputs
         if image_output is None:
             image_output = torch.zeros((1, 1, 1, 3))
         if mask_output is None:
             mask_output = torch.zeros((1, 1, 1))
         
-        return [image_output, mask_output]
+        return (image_output, mask_output)
 
 # Define a copy of the main class for cryptomatte layers
 class CryptomatteLayer(LoadExrLayerByName):
@@ -270,7 +270,7 @@ class CryptomatteLayer(LoadExrLayerByName):
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")  # Always execute
     
-    def process_cryptomatte(self, cryptomatte: Dict[str, torch.Tensor], layer_name: str) -> List[torch.Tensor]:
+    def process_cryptomatte(self, cryptomatte: Dict[str, torch.Tensor], layer_name: str) -> Tuple[torch.Tensor]:
         """
         Extract a specific cryptomatte layer.
         
@@ -279,13 +279,13 @@ class CryptomatteLayer(LoadExrLayerByName):
             layer_name: Name of the cryptomatte layer to extract
             
         Returns:
-            List containing the cryptomatte image tensor
+            Tuple containing the cryptomatte image tensor
         """
         # Check if we have any layers at all
         if not cryptomatte or len(cryptomatte) == 0:
             debug_log(logger, "warning", "No cryptomatte layers available", "No cryptomatte layers available in the input")
-            return [torch.zeros((1, 1, 1, 3))]
-        
+            return (torch.zeros((1, 1, 1, 3)),)
+
         # Update the class variable with available cryptomatte layer names
         self.__class__.available_layers = ["none"] + sorted(list(cryptomatte.keys()))
             
@@ -329,22 +329,12 @@ class CryptomatteLayer(LoadExrLayerByName):
                             debug_log(logger, "info", "Using first available cryptomatte", 
                                      f"Using first available cryptomatte layer: {layer_name}")
                         else:
-                            return [torch.zeros((1, 1, 1, 3))]
-        
+                            return (torch.zeros((1, 1, 1, 3)),)
+
         # If no layer is specified or "none" is selected, return an empty tensor
         if not layer_name or layer_name == "none":
             debug_log(logger, "warning", "No cryptomatte layer specified", "No cryptomatte layer specified, returning empty tensor")
-            return [torch.zeros((1, 1, 1, 3))]
-        
+            return (torch.zeros((1, 1, 1, 3)),)
+
         # Return the requested cryptomatte layer
-        return [cryptomatte[layer_name]]
-
-# NODE_CLASS_MAPPINGS = {
-#     "load_exr_layer_by_name": load_exr_layer_by_name,
-#     "shamble_cryptomatte": shamble_cryptomatte
-# }
-
-# NODE_DISPLAY_NAME_MAPPINGS = {
-#     "load_exr_layer_by_name": "Load EXR Layer by Name",
-#     "shamble_cryptomatte": "Cryptomatte Layer"
-# }
+        return (cryptomatte[layer_name],)
