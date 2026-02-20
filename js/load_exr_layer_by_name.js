@@ -241,31 +241,33 @@ app.registerExtension({
         // Listen for graph execution
         app.addEventListener("graphExecuted", (e) => {
             try {
-                // Get all matched nodes
-                const matchedNodes = findNodes(isCryptomatte ? "CryptomatteLayer" : "LoadExrLayerByName");
-                
-                if (matchedNodes.length === 0) {
+                // Find both node types independently
+                const layerNodes = findNodes("LoadExrLayerByName");
+                const cryptoNodes = findNodes("CryptomatteLayer");
+                const allNodes = [...layerNodes, ...cryptoNodes];
+
+                if (allNodes.length === 0) {
                     return; // No nodes to update
                 }
-                
-                console.log(`Found ${matchedNodes.length} ${isCryptomatte ? "cryptomatte " : ""}layer nodes to update after execution`);
-                
+
+                console.log(`Found ${layerNodes.length} layer nodes and ${cryptoNodes.length} cryptomatte nodes to update after execution`);
+
                 // For each node, call updateLayerOptions
-                for (const node of matchedNodes) {
+                for (const node of allNodes) {
                     if (node.updateLayerOptions) {
                         node.updateLayerOptions();
                     }
                 }
             } catch (error) {
-                console.error(`Error in ${isCryptomatte ? "cryptomatte " : ""}layer node graph execution handler:`, error);
+                console.error("Error in layer node graph execution handler:", error);
             }
         });
-        
+
         function findNodes(type) {
             if (!app.graph || !app.graph._nodes) {
                 return [];
             }
-            
+
             return app.graph._nodes.filter(node => node.type === type);
         }
     }
