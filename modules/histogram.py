@@ -41,6 +41,7 @@ class HistogramNode(io.ComfyNode):
         try:
             frame = image[0].cpu().numpy()
             height, width, channels = frame.shape
+            original_channels = channels
 
             if channels < 3:
                 debug_log(logger, "warning", f"Histogram requires at least 3 channels, got {channels}")
@@ -55,7 +56,7 @@ class HistogramNode(io.ComfyNode):
                 "image_info": {
                     "width": width,
                     "height": height,
-                    "channels": channels,
+                    "channels": original_channels,
                     "batch_size": int(image.shape[0]),
                     "data_range": [round(data_min, 6), round(data_max, 6)],
                 }
