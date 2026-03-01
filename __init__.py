@@ -7,6 +7,7 @@ from .modules.saver import SaverNode
 from .modules.load_exr_layer_by_name import LoadExrLayerByName, CryptomatteLayer
 from .modules.colorspace import ColorspaceNode
 from .modules.znormalize import ZNormalizeNode
+from .modules.histogram import HistogramNode
 
 # Initialize node mappings
 NODE_CLASS_MAPPINGS = {}
@@ -23,7 +24,8 @@ NODE_CLASS_MAPPINGS.update({
     "LoadExrLayerByName": LoadExrLayerByName,
     "CryptomatteLayer": CryptomatteLayer,
     "ColorspaceNode": ColorspaceNode,
-    "ZNormalizeNode": ZNormalizeNode
+    "ZNormalizeNode": ZNormalizeNode,
+    "HistogramNode": HistogramNode,
 })
 
 # Add display names for better UI presentation
@@ -35,7 +37,8 @@ NODE_DISPLAY_NAME_MAPPINGS.update({
     "LoadExrLayerByName": "CoCo Load EXR Layer by Name",
     "CryptomatteLayer": "CoCo Cryptomatte Layer",
     "ColorspaceNode": "CoCo Colorspace",
-    "ZNormalizeNode": "CoCo Z Normalize"
+    "ZNormalizeNode": "CoCo Z Normalize",
+    "HistogramNode": "CoCo Histogram",
 })
 
 # Expose what ComfyUI needs
