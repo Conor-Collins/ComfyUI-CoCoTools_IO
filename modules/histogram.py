@@ -38,53 +38,62 @@ class HistogramNode(io.ComfyNode):
 
     @classmethod
     def execute(cls, image, num_bins=256) -> io.NodeOutput:
-        frame = image[0].cpu().numpy()
-        height, width, channels = frame.shape
+        try:
+            frame = image[0].cpu().numpy()
+            height, width, channels = frame.shape
 
-        data_min = float(frame.min())
-        data_max = float(frame.max())
-        bin_range = (min(data_min, 0.0), max(data_max, 1.0))
+            if channels < 3:
+                debug_log(logger, "warning", f"Histogram requires at least 3 channels, got {channels}")
+                frame = np.repeat(frame, 3 // channels + 1, axis=2)[:, :, :3]
+                channels = 3
 
-        result = {
-            "image_info": {
-                "width": width,
-                "height": height,
-                "channels": channels,
-                "batch_size": int(image.shape[0]),
-                "data_range": [round(data_min, 6), round(data_max, 6)],
+            data_min = float(frame.min())
+            data_max = float(frame.max())
+            bin_range = (min(data_min, 0.0), max(data_max, 1.0))
+
+            result = {
+                "image_info": {
+                    "width": width,
+                    "height": height,
+                    "channels": channels,
+                    "batch_size": int(image.shape[0]),
+                    "data_range": [round(data_min, 6), round(data_max, 6)],
+                }
             }
-        }
 
-        channel_names = ["red", "green", "blue"]
-        if channels == 4:
-            channel_names.append("alpha")
+            channel_names = ["red", "green", "blue"]
+            if channels == 4:
+                channel_names.append("alpha")
 
-        stats = {}
-        for i, name in enumerate(channel_names):
-            ch = frame[:, :, i].ravel()
-            counts, bin_edges = np.histogram(ch, bins=num_bins, range=bin_range)
-            result[name] = counts.tolist()
-            stats[name] = _compute_channel_stats(ch)
+            stats = {}
+            for i, name in enumerate(channel_names):
+                ch = frame[:, :, i].ravel()
+                counts, bin_edges = np.histogram(ch, bins=num_bins, range=bin_range)
+                result[name] = counts.tolist()
+                stats[name] = _compute_channel_stats(ch)
 
-        if "bins" not in result:
             result["bins"] = [round(float(b), 6) for b in bin_edges]
 
-        lum = 0.2126 * frame[:, :, 0] + 0.7152 * frame[:, :, 1] + 0.0722 * frame[:, :, 2]
-        lum_flat = lum.ravel()
-        lum_counts, _ = np.histogram(lum_flat, bins=num_bins, range=bin_range)
-        result["luminance"] = lum_counts.tolist()
-        stats["luminance"] = _compute_channel_stats(lum_flat)
+            lum = 0.2126 * frame[:, :, 0] + 0.7152 * frame[:, :, 1] + 0.0722 * frame[:, :, 2]
+            lum_flat = lum.ravel()
+            lum_counts, _ = np.histogram(lum_flat, bins=num_bins, range=bin_range)
+            result["luminance"] = lum_counts.tolist()
+            stats["luminance"] = _compute_channel_stats(lum_flat)
 
-        if channels < 4:
-            result["alpha"] = None
-            stats["alpha"] = None
+            if channels < 4:
+                result["alpha"] = None
+                stats["alpha"] = None
 
-        result["stats"] = stats
+            result["stats"] = stats
 
-        debug_log(logger, "info",
-                  f"Histogram computed: {width}x{height}, {channels}ch, range=[{data_min:.4f}, {data_max:.4f}]")
+            debug_log(logger, "info",
+                      f"Histogram computed: {width}x{height}, {channels}ch, range=[{data_min:.4f}, {data_max:.4f}]")
 
-        return io.NodeOutput(ui={"histogram_data": [result]})
+            return io.NodeOutput(ui={"histogram_data": [result]})
+
+        except Exception as e:
+            debug_log(logger, "error", "Histogram computation failed", f"Error computing histogram: {str(e)}")
+            raise
 
     @classmethod
     def fingerprint_inputs(cls, **kwargs):
