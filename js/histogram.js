@@ -97,6 +97,10 @@ function drawHistogram(canvas, data, mode, useLog) {
             ctx.lineTo(x, h - barH);
         }
 
+        // Extend to right edge at last bin's height before dropping to baseline
+        const lastVal = useLog ? Math.log1p(counts[binCount - 1]) : counts[binCount - 1];
+        const lastBarH = (lastVal / globalMax) * h;
+        ctx.lineTo(w, h - lastBarH);
         ctx.lineTo(w, h);
         ctx.closePath();
         ctx.fill();
