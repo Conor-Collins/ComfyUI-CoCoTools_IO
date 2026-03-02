@@ -134,8 +134,8 @@ function drawCIExyOverlays(ctx) {
     ctx.fillText("G", mapX(SRGB_GAMUT_NORMALIZED.g.x), mapY(SRGB_GAMUT_NORMALIZED.g.y) - 8);
     ctx.fillText("B", mapX(SRGB_GAMUT_NORMALIZED.b.x), mapY(SRGB_GAMUT_NORMALIZED.b.y) + 14);
 
-    var d65x = mapX(SRGB_GAMUT_NORMALIZED.d65.x);
-    var d65y = mapY(SRGB_GAMUT_NORMALIZED.d65.y);
+    const d65x = mapX(SRGB_GAMUT_NORMALIZED.d65.x);
+    const d65y = mapY(SRGB_GAMUT_NORMALIZED.d65.y);
     ctx.strokeStyle = "rgba(255,255,255,0.6)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -157,7 +157,7 @@ function mapScatterPoint(x, y, colorModel) {
 }
 
 function drawVectorscope(canvas, data, showGuides, showSkin) {
-    var ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
 
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
@@ -172,7 +172,7 @@ function drawVectorscope(canvas, data, showGuides, showSkin) {
 
     drawGraticule(ctx);
 
-    var colorModel = data.color_model;
+    const colorModel = data.color_model;
 
     if (showGuides) {
         if (colorModel === "YCbCr") {
@@ -194,11 +194,11 @@ function drawVectorscope(canvas, data, showGuides, showSkin) {
     ctx.clip();
 
     ctx.fillStyle = COLORS.dot;
-    var xCoords = data.x_coords;
-    var yCoords = data.y_coords;
+    const xCoords = data.x_coords;
+    const yCoords = data.y_coords;
 
-    for (var i = 0; i < xCoords.length; i++) {
-        var pt = mapScatterPoint(xCoords[i], yCoords[i], colorModel);
+    for (let i = 0; i < xCoords.length; i++) {
+        const pt = mapScatterPoint(xCoords[i], yCoords[i], colorModel);
         ctx.fillRect(pt[0], pt[1], 1, 1);
     }
 
@@ -210,34 +210,34 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "VectorscopeNode") return;
 
-        var origOnNodeCreated = nodeType.prototype.onNodeCreated;
-        var origOnExecuted = nodeType.prototype.onExecuted;
+        const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+        const origOnExecuted = nodeType.prototype.onExecuted;
 
         nodeType.prototype.onNodeCreated = function () {
-            var result = origOnNodeCreated?.apply(this, arguments);
+            const result = origOnNodeCreated?.apply(this, arguments);
 
             this._vectorscopeData = null;
             this._showGuides = true;
             this._showSkin = true;
 
-            var container = document.createElement("div");
+            const container = document.createElement("div");
             container.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px;";
 
-            var infoBar = document.createElement("div");
+            const infoBar = document.createElement("div");
             infoBar.style.cssText = "width:100%;font:10px monospace;color:#ccc;padding:0 4px;";
             infoBar.textContent = "No data";
             container.appendChild(infoBar);
 
-            var canvas = document.createElement("canvas");
+            const canvas = document.createElement("canvas");
             canvas.width = CANVAS_SIZE;
             canvas.height = CANVAS_SIZE;
             canvas.style.cssText = "width:100%;border-radius:3px;";
             container.appendChild(canvas);
 
-            var btnRow = document.createElement("div");
+            const btnRow = document.createElement("div");
             btnRow.style.cssText = "display:flex;gap:3px;align-items:center;";
 
-            var guidesBtn = document.createElement("button");
+            const guidesBtn = document.createElement("button");
             guidesBtn.textContent = "Guides";
             guidesBtn.style.cssText = "padding:2px 6px;font:10px monospace;border:1px solid #888;background:#4a4a4a;color:#ccc;border-radius:3px;cursor:pointer;";
             guidesBtn.addEventListener("click", () => {
@@ -246,7 +246,7 @@ app.registerExtension({
             });
             btnRow.appendChild(guidesBtn);
 
-            var skinBtn = document.createElement("button");
+            const skinBtn = document.createElement("button");
             skinBtn.textContent = "Skin";
             skinBtn.style.cssText = "padding:2px 6px;font:10px monospace;border:1px solid #888;background:#4a4a4a;color:#ccc;border-radius:3px;cursor:pointer;";
             skinBtn.addEventListener("click", () => {
@@ -262,26 +262,26 @@ app.registerExtension({
             this._vsGuidesBtn = guidesBtn;
             this._vsSkinBtn = skinBtn;
 
-            var widget = this.addDOMWidget("vectorscope_display", "custom", container, {
+            const widget = this.addDOMWidget("vectorscope_display", "custom", container, {
                 serialize: false,
                 getMinHeight: function () { return CANVAS_SIZE + 60; },
             });
             widget.computeSize = function () { return [CANVAS_SIZE, CANVAS_SIZE + 60]; };
 
             this._updateVectorscope = () => {
-                var data = this._vectorscopeData;
+                const data = this._vectorscopeData;
                 drawVectorscope(this._vsCanvas, data, this._showGuides, this._showSkin);
 
                 this._vsGuidesBtn.style.background = this._showGuides ? COLORS.btnActive : COLORS.btnInactive;
                 this._vsGuidesBtn.style.borderColor = this._showGuides ? COLORS.borderActive : COLORS.borderInactive;
 
-                var isYCbCr = data && data.color_model === "YCbCr";
+                const isYCbCr = data && data.color_model === "YCbCr";
                 this._vsSkinBtn.style.display = isYCbCr ? "" : "none";
                 this._vsSkinBtn.style.background = this._showSkin ? COLORS.btnActive : COLORS.btnInactive;
                 this._vsSkinBtn.style.borderColor = this._showSkin ? COLORS.borderActive : COLORS.borderInactive;
 
                 if (data) {
-                    var info = data.image_info || {};
+                    const info = data.image_info || {};
                     this._vsInfoBar.textContent =
                         data.color_model + "  " +
                         (info.width || "?") + "x" + (info.height || "?") + "  " +

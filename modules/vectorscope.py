@@ -82,6 +82,11 @@ class VectorscopeNode(io.ComfyNode):
             frame = image[0].cpu().numpy()
             height, width, channels = frame.shape
 
+            if channels < 3:
+                debug_log(logger, "warning", f"Vectorscope requires at least 3 channels, got {channels}")
+                frame = np.repeat(frame, 3 // channels + 1, axis=2)[:, :, :3]
+                channels = 3
+
             pixels = frame.reshape(-1, channels)[:, :3]
 
             total_pixels = pixels.shape[0]
@@ -108,6 +113,7 @@ class VectorscopeNode(io.ComfyNode):
                     "width": width,
                     "height": height,
                     "channels": channels,
+                    "batch_size": int(image.shape[0]),
                 },
             }
 
