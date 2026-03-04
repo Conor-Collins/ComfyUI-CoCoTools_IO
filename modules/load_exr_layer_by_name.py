@@ -95,12 +95,13 @@ class LoadExrLayerByName:
         
         # If the layer doesn't exist, try to find a close match
         if layer_name not in layers and layer_name != "none":
+            original_name = layer_name
             # Try to find an exact match ignoring case
             case_insensitive_matches = [l for l in layers.keys() if l.lower() == layer_name.lower()]
             if case_insensitive_matches:
                 layer_name = case_insensitive_matches[0]
                 debug_log(logger, "debug", "Found layer with different case",
-                         f"Layer name '{layer_name}' found with different case: '{layer_name}'")
+                         f"Layer name '{original_name}' found with different case: '{layer_name}'")
             else:
                 # Try to find a partial match
                 matches = [l for l in layers.keys() if layer_name.lower() in l.lower()]
@@ -109,7 +110,7 @@ class LoadExrLayerByName:
                     matches.sort(key=len)
                     layer_name = matches[0]
                     debug_log(logger, "debug", "Using closest layer match",
-                             f"Layer name '{layer_name}' not found exactly, using closest match: '{layer_name}'")
+                             f"Layer name '{original_name}' not found exactly, using closest match: '{layer_name}'")
                 else:
                     # Try to match hierarchical names (e.g., "CITY SCENE.AO" when user enters "AO")
                     hierarchical_matches = []
@@ -123,17 +124,17 @@ class LoadExrLayerByName:
                     if hierarchical_matches:
                         layer_name = hierarchical_matches[0]
                         debug_log(logger, "debug", "Found hierarchical match",
-                                 f"Found hierarchical layer match: '{layer_name}'")
+                                 f"Found hierarchical layer match for '{original_name}': '{layer_name}'")
                     else:
                         # Try to match subimage names (e.g., "AO" for a subimage)
                         subimage_matches = [l for l in layers.keys() if l.split('.')[0].lower() == layer_name.lower()]
                         if subimage_matches:
                             layer_name = subimage_matches[0]
                             debug_log(logger, "debug", "Found subimage match",
-                                     f"Found subimage match: '{layer_name}'")
+                                     f"Found subimage match for '{original_name}': '{layer_name}'")
                         else:
-                            debug_log(logger, "warning", "Layer not found", 
-                                     f"Layer '{layer_name}' not found and no close matches")
+                            debug_log(logger, "warning", "Layer not found",
+                                     f"Layer '{original_name}' not found and no close matches")
                             # Use the first available layer as fallback
                             if len(layers) > 0:
                                 layer_name = list(layers.keys())[0]
@@ -287,12 +288,13 @@ class CryptomatteLayer(LoadExrLayerByName):
             
         # If the layer doesn't exist, try to find a close match
         if layer_name not in cryptomatte and layer_name != "none":
+            original_name = layer_name
             # Try to find an exact match ignoring case
             case_insensitive_matches = [l for l in cryptomatte.keys() if l.lower() == layer_name.lower()]
             if case_insensitive_matches:
                 layer_name = case_insensitive_matches[0]
                 debug_log(logger, "debug", "Found cryptomatte with different case",
-                         f"Cryptomatte layer name '{layer_name}' found with different case: '{layer_name}'")
+                         f"Cryptomatte layer name '{original_name}' found with different case: '{layer_name}'")
             else:
                 # Try to find a partial match
                 matches = [l for l in cryptomatte.keys() if layer_name.lower() in l.lower()]
@@ -301,7 +303,7 @@ class CryptomatteLayer(LoadExrLayerByName):
                     matches.sort(key=len)
                     layer_name = matches[0]
                     debug_log(logger, "debug", "Using closest cryptomatte match",
-                             f"Cryptomatte layer name '{layer_name}' not found exactly, using closest match: '{layer_name}'")
+                             f"Cryptomatte layer name '{original_name}' not found exactly, using closest match: '{layer_name}'")
                 else:
                     # Try to match hierarchical names (e.g., "CITY SCENE.CryptoAsset00" when user enters "CryptoAsset")
                     hierarchical_matches = []
@@ -315,10 +317,10 @@ class CryptomatteLayer(LoadExrLayerByName):
                     if hierarchical_matches:
                         layer_name = hierarchical_matches[0]
                         debug_log(logger, "debug", "Found hierarchical cryptomatte match",
-                                 f"Found hierarchical cryptomatte layer match: '{layer_name}'")
+                                 f"Found hierarchical cryptomatte layer match for '{original_name}': '{layer_name}'")
                     else:
-                        debug_log(logger, "warning", "Cryptomatte layer not found", 
-                                 f"Cryptomatte layer '{layer_name}' not found and no close matches")
+                        debug_log(logger, "warning", "Cryptomatte layer not found",
+                                 f"Cryptomatte layer '{original_name}' not found and no close matches")
                         # Use the first available layer as fallback
                         if len(cryptomatte) > 0:
                             layer_name = list(cryptomatte.keys())[0]

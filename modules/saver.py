@@ -261,13 +261,16 @@ class SaverNode:
         """Get unique filepath with incremental counter"""
         if not os.path.exists(base_path):
             return base_path
-        
+
         dir_name = os.path.dirname(base_path)
         base_name = os.path.basename(base_path)
         name, ext = os.path.splitext(base_name)
-        
+
+        max_versions = 9999
         counter = 1
         while True:
+            if counter > max_versions:
+                raise RuntimeError(f"Exceeded {max_versions} versions for {base_path}")
             new_path = os.path.join(dir_name, f"{name}_{counter}{ext}")
             if not os.path.exists(new_path):
                 return new_path

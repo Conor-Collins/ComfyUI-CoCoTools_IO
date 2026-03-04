@@ -338,18 +338,29 @@ class ColorspaceNode:
             # Handle clipping based on colorspace
             # For HDR colorspaces like ACES, we don't want to clip to 0-1
             is_hdr_colorspace = any(hdr_space in to_colorspace for hdr_space in ["ACES", "Raw", "Linear"])
-            
+            is_aces = any(aces in to_colorspace for aces in ["ACEScg", "ACES2065", "ACEScc", "ACEScct"])
+
             if not is_hdr_colorspace:
                 # For display-referred spaces, clip to 0-1
                 working_img = np.clip(working_img, 0.0, 1.0)
-            else:
-                # For HDR/scene-referred spaces, just ensure no negative values
+            elif not is_aces:
+                # For non-ACES HDR/scene-referred spaces, clamp negatives but allow values > 1.0
                 working_img = np.maximum(working_img, 0.0)
-                
+
                 # Log if we have values > 1.0 (common in HDR)
                 if np.any(working_img > 1.0):
                     max_val = np.max(working_img)
                     logger.debug(f"HDR values detected: max={max_val:.6f}")
+            else:
+                # ACES colorspaces legitimately use negative values, preserve them
+                neg_count = np.sum(working_img < 0)
+                if neg_count > 0:
+                    logger.debug(f"ACES colorspace preserving {neg_count} negative values")
+
+                # Log if we have values > 1.0 (common in HDR/ACES)
+                if np.any(working_img > 1.0):
+                    max_val = np.max(working_img)
+                    logger.debug(f"ACES HDR values detected: max={max_val:.6f}")
             
             # Convert back to torch tensor
             result_tensor = torch.from_numpy(working_img).to(images.device)

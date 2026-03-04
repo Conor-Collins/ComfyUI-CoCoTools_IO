@@ -118,9 +118,10 @@ class BatchProcessor:
             Reshaped tensor [B, H, W, C]
         """
         batch_size, height, width, original_channels = original_shape
-        
-        # Reshape RGB back to batch dimensions
-        rgb_reshaped = processed_rgb.reshape(batch_size, height, width, 3)
+
+        # Reshape RGB back to batch dimensions using actual channel count
+        actual_channels = processed_rgb.shape[-1] if processed_rgb.ndim > 1 else 3
+        rgb_reshaped = processed_rgb.reshape(batch_size, height, width, actual_channels)
         
         # Reattach alpha if present
         if alpha_channel is not None:
