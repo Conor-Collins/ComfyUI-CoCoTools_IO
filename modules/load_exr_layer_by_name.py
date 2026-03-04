@@ -252,11 +252,27 @@ class CryptomatteLayer(LoadExrLayerByName):
                     "multiline": False,
                     "description": "Name of the cryptomatte layer to extract. Look for names starting with 'crypto' in the metadata."
                 })
+            },
+            "optional": {
+                "x_coord": ("INT", {
+                    "default": -1,
+                    "min": -1,
+                    "max": 16384,
+                    "step": 1,
+                    "description": "X pixel coordinate for click-to-matte selection. Set to -1 to disable."
+                }),
+                "y_coord": ("INT", {
+                    "default": -1,
+                    "min": -1,
+                    "max": 16384,
+                    "step": 1,
+                    "description": "Y pixel coordinate for click-to-matte selection. Set to -1 to disable."
+                })
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
     FUNCTION = "process_cryptomatte"
     CATEGORY = "Image/EXR"
 
@@ -264,21 +280,25 @@ class CryptomatteLayer(LoadExrLayerByName):
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")  # Always execute
 
-    def process_cryptomatte(self, cryptomatte: dict[str, torch.Tensor], layer_name: str) -> tuple[torch.Tensor]:
+    def process_cryptomatte(self, cryptomatte: dict[str, torch.Tensor], layer_name: str,
+                            x_coord: int = -1, y_coord: int = -1) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Extract a specific cryptomatte layer.
+        Extract a specific cryptomatte layer, optionally generating a matte mask
+        from the object ID at a clicked pixel position.
 
         Args:
             cryptomatte: Dictionary of cryptomatte layer names to tensors
             layer_name: Name of the cryptomatte layer to extract
+            x_coord: X pixel coordinate for click-to-matte, -1 to disable
+            y_coord: Y pixel coordinate for click-to-matte, -1 to disable
 
         Returns:
-            Tuple containing the cryptomatte image tensor
+            Tuple containing (image, mask) tensors
         """
         # Check if we have any layers at all
         if not cryptomatte or len(cryptomatte) == 0:
             debug_log(logger, "warning", "No cryptomatte layers available", "No cryptomatte layers available in the input")
-            return (torch.zeros((1, 1, 1, 3)),)
+            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
 
         # Update the class variable with available cryptomatte layer names
         self.__class__.available_layers = ["none", *sorted(cryptomatte.keys())]
@@ -324,12 +344,101 @@ class CryptomatteLayer(LoadExrLayerByName):
                             debug_log(logger, "debug", "Using first available cryptomatte",
                                      f"Using first available cryptomatte layer: {layer_name}")
                         else:
-                            return (torch.zeros((1, 1, 1, 3)),)
+                            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
 
-        # If no layer is specified or "none" is selected, return an empty tensor
+        # If no layer is specified or "none" is selected, return empty tensors
         if not layer_name or layer_name == "none":
             debug_log(logger, "warning", "No cryptomatte layer specified", "No cryptomatte layer specified, returning empty tensor")
-            return (torch.zeros((1, 1, 1, 3)),)
+            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
 
-        # Return the requested cryptomatte layer
-        return (cryptomatte[layer_name],)
+        # Get the cryptomatte layer tensor
+        layer_tensor = cryptomatte[layer_name]
+        image_output = layer_tensor
+
+        # Generate click-to-matte mask when valid coordinates are provided
+        mask_output = self._generate_matte_mask(layer_tensor, x_coord, y_coord)
+
+        return (image_output, mask_output)
+
+    def _generate_matte_mask(self, layer_tensor, x_coord, y_coord):
+        """
+        Generate a binary matte mask from a cryptomatte layer by sampling the
+        object ID hash at the given pixel coordinates and selecting all pixels
+        that share the same hash value.
+
+        Args:
+            layer_tensor: The cryptomatte layer tensor
+            x_coord: X pixel coordinate, -1 to disable
+            y_coord: Y pixel coordinate, -1 to disable
+
+        Returns:
+            A mask tensor, either the generated matte or an empty mask
+        """
+        if x_coord < 0 or y_coord < 0:
+            # No click coordinates, return empty mask
+            if len(layer_tensor.shape) == 4:
+                return torch.zeros((layer_tensor.shape[0], layer_tensor.shape[1], layer_tensor.shape[2]))
+            elif len(layer_tensor.shape) == 3:
+                return torch.zeros_like(layer_tensor)
+            return torch.zeros((1, 1, 1))
+
+        # Determine tensor dimensions for coordinate clamping
+        if len(layer_tensor.shape) == 4:
+            # Shape [B, H, W, C]
+            height = layer_tensor.shape[1]
+            width = layer_tensor.shape[2]
+        elif len(layer_tensor.shape) == 3:
+            # Shape [B, H, W]
+            height = layer_tensor.shape[1]
+            width = layer_tensor.shape[2]
+        else:
+            debug_log(logger, "warning", "Unexpected cryptomatte tensor shape",
+                     f"Cannot generate matte mask for tensor shape {layer_tensor.shape}")
+            return torch.zeros((1, 1, 1))
+
+        # Clamp coordinates to valid range
+        x_clamped = min(max(x_coord, 0), width - 1)
+        y_clamped = min(max(y_coord, 0), height - 1)
+
+        debug_log(logger, "debug", f"Click-to-matte at ({x_clamped}, {y_clamped})",
+                 f"Sampling cryptomatte hash at pixel ({x_clamped}, {y_clamped}) from tensor shape {layer_tensor.shape}")
+
+        # Sample the cryptomatte hash value at the clicked pixel
+        # Cryptomatte stores float32 object ID hashes; read from channel 0 (R)
+        if len(layer_tensor.shape) == 4:
+            hash_value = layer_tensor[0, y_clamped, x_clamped, 0].item()
+        else:
+            hash_value = layer_tensor[0, y_clamped, x_clamped].item()
+
+        debug_log(logger, "debug", f"Sampled hash value: {hash_value}",
+                 f"Cryptomatte hash at ({x_clamped}, {y_clamped}): {hash_value}")
+
+        # If the hash value is zero or very close to zero, no object is at this pixel
+        epsilon = 1e-6
+        if abs(hash_value) < epsilon:
+            debug_log(logger, "debug", "No object at clicked position",
+                     f"Hash value {hash_value} is near zero, no object selected")
+            if len(layer_tensor.shape) == 4:
+                return torch.zeros((layer_tensor.shape[0], layer_tensor.shape[1], layer_tensor.shape[2]))
+            return torch.zeros((layer_tensor.shape[0], height, width))
+
+        # Build binary mask: 1.0 where any channel matches the hash, 0.0 elsewhere
+        if len(layer_tensor.shape) == 4:
+            # For multi-channel cryptomatte [B, H, W, C], check all channels
+            # Each pair of channels stores (ID hash, coverage) for different objects
+            # Match against all even-indexed channels (the ID channels)
+            num_channels = layer_tensor.shape[3]
+            match_mask = torch.zeros((layer_tensor.shape[0], height, width), dtype=torch.float32)
+            for ch in range(0, num_channels, 2):
+                channel_data = layer_tensor[:, :, :, ch]
+                channel_match = torch.abs(channel_data - hash_value) < epsilon
+                match_mask = torch.max(match_mask, channel_match.float())
+        else:
+            # Single channel [B, H, W]
+            match_mask = (torch.abs(layer_tensor - hash_value) < epsilon).float()
+
+        debug_log(logger, "debug",
+                 f"Matte mask generated, {match_mask.sum().item():.0f} pixels selected",
+                 f"Generated matte mask with {match_mask.sum().item():.0f} selected pixels out of {height * width}")
+
+        return match_mask

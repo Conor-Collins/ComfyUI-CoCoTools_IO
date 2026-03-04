@@ -18,11 +18,16 @@ app.registerExtension({
         // Override onNodeCreated to set up node
         nodeType.prototype.onNodeCreated = function() {
             const result = onNodeCreated?.apply(this, arguments);
-            
+
             // Initialize storage for layer information
             this.availableLayers = [];
             this.selectedLayer = "";
             this.connectedNodes = {}; // Track connected nodes
+
+            // Set up click-to-matte interaction for CryptomatteLayer nodes
+            if (isCryptomatte) {
+                this._setupClickToMatte();
+            }
 
             return result;
         };
@@ -203,10 +208,129 @@ app.registerExtension({
         // This allows direct communication between nodes
         nodeType.prototype.notifyLayersChanged = function(layerNames) {
             if (!layerNames || layerNames.length === 0) return;
-            
+
             const filteredLayers = this.filterLayerNames(layerNames);
             this.availableLayers = [...filteredLayers];
             this.updateNodeHelp();
+        };
+
+        // Set up click-to-matte interaction on the node preview image area
+        nodeType.prototype._setupClickToMatte = function() {
+            const node = this;
+
+            // Store the original onMouseDown to chain calls
+            const origOnMouseDown = node.onMouseDown;
+
+            node.onMouseDown = function(event, localPos, graphCanvas) {
+                // Call the original handler first if it exists
+                if (origOnMouseDown) {
+                    const origResult = origOnMouseDown.call(this, event, localPos, graphCanvas);
+                    if (origResult === true) {
+                        return true;
+                    }
+                }
+
+                // Only process left clicks
+                if (event.button !== 0) {
+                    return false;
+                }
+
+                // Find the preview image area on this node
+                const imageWidget = this.imgs;
+                if (!imageWidget || imageWidget.length === 0) {
+                    return false;
+                }
+
+                // The preview image is rendered below widgets. Calculate the image
+                // display area from the node's internal image render region.
+                const img = imageWidget[0];
+                if (!img || !img.naturalWidth || !img.naturalHeight) {
+                    return false;
+                }
+
+                // Determine the image display area within the node
+                // ComfyUI renders node images in the area below widgets
+                const widgetHeight = this.computeSize()[1] - this.size[1] + LiteGraph.NODE_WIDGET_HEIGHT;
+                const nodeWidth = this.size[0];
+                const nodeHeight = this.size[1];
+
+                // The image area starts after the title and widgets
+                const titleHeight = LiteGraph.NODE_TITLE_HEIGHT || 30;
+                let widgetsHeight = 0;
+                if (this.widgets) {
+                    for (const w of this.widgets) {
+                        if (w.computeSize) {
+                            widgetsHeight += w.computeSize()[1] + 4;
+                        } else {
+                            widgetsHeight += LiteGraph.NODE_WIDGET_HEIGHT + 4;
+                        }
+                    }
+                }
+
+                // Image display area bounds (relative to node origin)
+                const imgAreaTop = titleHeight + widgetsHeight;
+                const imgAreaLeft = 0;
+                const imgAreaWidth = nodeWidth;
+                const imgAreaHeight = nodeHeight - imgAreaTop;
+
+                // Check if the click is within the image area
+                const clickX = localPos[0];
+                const clickY = localPos[1];
+
+                if (clickX < imgAreaLeft || clickX > imgAreaLeft + imgAreaWidth ||
+                    clickY < imgAreaTop || clickY > imgAreaTop + imgAreaHeight) {
+                    return false;
+                }
+
+                // Calculate aspect-ratio-preserving image fit within the display area
+                const imgNatWidth = img.naturalWidth;
+                const imgNatHeight = img.naturalHeight;
+                const scaleX = imgAreaWidth / imgNatWidth;
+                const scaleY = imgAreaHeight / imgNatHeight;
+                const scale = Math.min(scaleX, scaleY);
+
+                const renderedWidth = imgNatWidth * scale;
+                const renderedHeight = imgNatHeight * scale;
+
+                // The image is centered in the display area
+                const imgOffsetX = imgAreaLeft + (imgAreaWidth - renderedWidth) / 2;
+                const imgOffsetY = imgAreaTop + (imgAreaHeight - renderedHeight) / 2;
+
+                // Check if click falls within the rendered image bounds
+                const relX = clickX - imgOffsetX;
+                const relY = clickY - imgOffsetY;
+
+                if (relX < 0 || relX >= renderedWidth || relY < 0 || relY >= renderedHeight) {
+                    return false;
+                }
+
+                // Map click position to pixel coordinates in the original image
+                const pixelX = Math.floor((relX / renderedWidth) * imgNatWidth);
+                const pixelY = Math.floor((relY / renderedHeight) * imgNatHeight);
+
+                // Clamp to valid range
+                const finalX = Math.min(Math.max(pixelX, 0), imgNatWidth - 1);
+                const finalY = Math.min(Math.max(pixelY, 0), imgNatHeight - 1);
+
+                // Update the x_coord and y_coord widgets
+                const xWidget = this.widgets?.find(w => w.name === "x_coord");
+                const yWidget = this.widgets?.find(w => w.name === "y_coord");
+
+                if (xWidget && yWidget) {
+                    xWidget.value = finalX;
+                    yWidget.value = finalY;
+
+                    // Mark the node as needing re-execution
+                    if (this.graph) {
+                        this.graph.change();
+                    }
+                    this.setDirtyCanvas(true, true);
+                    console.log("CryptomatteLayer click-to-matte: pixel (" + finalX + ", " + finalY + ")");
+                    return true;
+                }
+
+                return false;
+            };
         };
     },
     
