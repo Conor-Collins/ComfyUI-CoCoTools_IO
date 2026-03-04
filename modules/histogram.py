@@ -52,6 +52,8 @@ class HistogramNode(io.ComfyNode):
             data_max = float(frame.max())
             bin_range = (min(data_min, 0.0), max(data_max, 1.0))
 
+            bit_depth = _estimate_bit_depth(frame)
+
             result = {
                 "image_info": {
                     "width": width,
@@ -59,6 +61,7 @@ class HistogramNode(io.ComfyNode):
                     "channels": original_channels,
                     "batch_size": int(image.shape[0]),
                     "data_range": [round(data_min, 6), round(data_max, 6)],
+                    "bit_depth": bit_depth,
                 }
             }
 
@@ -99,6 +102,33 @@ class HistogramNode(io.ComfyNode):
     @classmethod
     def fingerprint_inputs(cls, **kwargs):
         return float("NaN")
+
+
+def _estimate_bit_depth(frame):
+    """Estimate the source bit depth of a normalized float32 image tensor.
+
+    Samples pixel values and checks whether they snap to discrete levels
+    consistent with 8-bit (256), 16-bit (65536), or continuous 32-bit float data.
+    """
+    flat = frame[:, :, 0].ravel()
+    max_samples = 100000
+    if len(flat) > max_samples:
+        indices = np.linspace(0, len(flat) - 1, max_samples, dtype=int)
+        flat = flat[indices]
+
+    # Check 8-bit: values should be multiples of 1/255
+    scaled_8 = flat * 255.0
+    residuals_8 = np.abs(scaled_8 - np.round(scaled_8))
+    if np.max(residuals_8) < 0.01:
+        return 8
+
+    # Check 16-bit: values should be multiples of 1/65535
+    scaled_16 = flat * 65535.0
+    residuals_16 = np.abs(scaled_16 - np.round(scaled_16))
+    if np.max(residuals_16) < 0.5:
+        return 16
+
+    return 32
 
 
 def _compute_channel_stats(channel_data):
