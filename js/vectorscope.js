@@ -199,7 +199,8 @@ function drawVectorscope(canvas, data, showGuides, showSkin) {
     const xCoords = data.x_coords;
     const yCoords = data.y_coords;
 
-    for (let i = 0; i < xCoords.length; i++) {
+    const coordLen = Math.min(xCoords.length, yCoords.length);
+    for (let i = 0; i < coordLen; i++) {
         const pt = mapScatterPoint(xCoords[i], yCoords[i], colorModel);
         ctx.fillRect(pt[0], pt[1], 1, 1);
     }
@@ -287,7 +288,7 @@ app.registerExtension({
                     this._vsInfoBar.textContent =
                         data.color_model + "  " +
                         (info.width || "?") + "x" + (info.height || "?") + "  " +
-                        data.point_count + " pts";
+                        (data.point_count ?? 0) + " pts";
                 } else {
                     this._vsInfoBar.textContent = "No data";
                 }

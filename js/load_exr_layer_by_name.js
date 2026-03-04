@@ -9,13 +9,11 @@ app.registerExtension({
         }
 
         const isCryptomatte = nodeData.name === "CryptomatteLayer";
-        console.log(`Registering ${isCryptomatte ? "Cryptomatte " : ""}Load EXR Layer by Name node`);
-        
+
         // Store original methods to call them later
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         const onExecuted = nodeType.prototype.onExecuted;
         const onConnectionsChange = nodeType.prototype.onConnectionsChange;
-        const onWidgetChange = nodeType.prototype.onWidgetChange;
         
         // Override onNodeCreated to set up node
         nodeType.prototype.onNodeCreated = function() {
@@ -25,9 +23,7 @@ app.registerExtension({
             this.availableLayers = [];
             this.selectedLayer = "";
             this.connectedNodes = {}; // Track connected nodes
-            
-            console.log(`${isCryptomatte ? "Cryptomatte " : ""}Load EXR Layer by Name node created`);
-            
+
             return result;
         };
         
@@ -50,9 +46,7 @@ app.registerExtension({
                 const sourceNode = app.graph.getNodeById(sourceNodeId);
                 
                 if (!sourceNode) return;
-                
-                console.log(`Connection made to ${inputName} from node ${sourceNode.title || sourceNode.type}`);
-                
+
                 // Store only the node ID to avoid stale references
                 this.connectedNodes[inputName] = {
                     nodeId: sourceNodeId,
@@ -85,8 +79,6 @@ app.registerExtension({
             try {
                 // Check if the node execution was successful
                 if (message && message.status === "executed") {
-                    console.log(`${isCryptomatte ? "Cryptomatte " : ""}Load EXR Layer by Name executed successfully`);
-                    
                     // Update layer options based on connected nodes
                     // This ensures the node has the most up-to-date layer information
                     this.updateLayerOptions();
@@ -113,7 +105,6 @@ app.registerExtension({
             if (!sourceNode) {
                 return;
             }
-            console.log(`Finding available layers from ${sourceNode.title || sourceNode.type}`);
             
             // Check if the source is a LoadExr node
             const isLoadExr = sourceNode.type.includes("LoadExr");
@@ -126,9 +117,6 @@ app.registerExtension({
                 const outputData = sourceNode.getOutputData(connectionInfo.outputIndex);
                 if (outputData && typeof outputData === 'object') {
                     layerNames = Object.keys(outputData);
-                    if (layerNames.length > 0) {
-                        console.log(`Found ${layerNames.length} layers in direct output data`);
-                    }
                 }
             }
             
@@ -140,10 +128,6 @@ app.registerExtension({
                     layerNames = Object.keys(sourceNode.layerInfo.layers);
                 } else if (sourceNode.layerInfo.types) {
                     layerNames = Object.keys(sourceNode.layerInfo.types);
-                }
-                
-                if (layerNames.length > 0) {
-                    console.log(`Found ${layerNames.length} layers in source node layerInfo`);
                 }
             }
             
@@ -159,11 +143,8 @@ app.registerExtension({
                             layerNames = Object.keys(metadata.layer_types);
                         }
                         
-                        if (layerNames.length > 0) {
-                            console.log(`Found ${layerNames.length} layers in metadata`);
-                        }
                     } catch (error) {
-                        console.error("Failed to parse metadata:", error);
+                        // Metadata parsing failed, continue with other methods
                     }
                 }
             }
@@ -171,15 +152,13 @@ app.registerExtension({
             // Filter and update layers
             if (layerNames && layerNames.length > 0) {
                 const filteredLayers = this.filterLayerNames(layerNames);
-                console.log(`After filtering: ${filteredLayers.length} layers available`);
-                
+
                 // Store the available layers for tooltip/help
                 this.availableLayers = [...filteredLayers];
                 
                 // Update the node tooltip and title
                 this.updateNodeHelp();
             } else {
-                console.warn("No layers found by any method");
                 this.availableLayers = ["none"];
                 this.updateNodeHelp();
             }
@@ -220,13 +199,6 @@ app.registerExtension({
             this.help = `Available layers: ${layerList}`;
         };
         
-        // Track when widgets change
-        nodeType.prototype.onWidgetChange = function(name, value) {
-            if (onWidgetChange) {
-                onWidgetChange.apply(this, arguments);
-            }
-        };
-        
         // Add a method to be called by other nodes (e.g., load_exr)
         // This allows direct communication between nodes
         nodeType.prototype.notifyLayersChanged = function(layerNames) {
@@ -251,8 +223,6 @@ app.registerExtension({
                 if (allNodes.length === 0) {
                     return; // No nodes to update
                 }
-
-                console.log(`Found ${layerNodes.length} layer nodes and ${cryptoNodes.length} cryptomatte nodes to update after execution`);
 
                 // For each node, call updateLayerOptions
                 for (const node of allNodes) {

@@ -281,8 +281,8 @@ app.registerExtension({
                 for (const key of statKeys) {
                     const s = data.stats[key];
                     if (!s) continue;
-                    clipLow += s.clip_low;
-                    clipHigh += s.clip_high;
+                    clipLow += (s.clip_low ?? 0);
+                    clipHigh += (s.clip_high ?? 0);
                     count++;
                 }
                 if (count > 0) {
