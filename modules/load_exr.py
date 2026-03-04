@@ -1,6 +1,5 @@
 import os
 import logging
-from typing import List
 
 # Import centralized logging setup
 try:
@@ -14,8 +13,8 @@ logger = logging.getLogger(__name__)
 # Import EXR utilities
 try:
     from ..utils.exr_utils import ExrProcessor
-except ImportError:
-    raise ImportError("EXR utilities are required but not available. Please ensure utils are properly installed.")
+except ImportError as exc:
+    raise ImportError("EXR utilities are required but not available. Please ensure utils are properly installed.") from exc
 
 class LoadExr:
     @classmethod
@@ -39,10 +38,10 @@ class LoadExr:
 
     RETURN_TYPES = ("IMAGE", "MASK", "CRYPTOMATTE", "LAYERS", "STRING", "STRING", "STRING")
     RETURN_NAMES = ("image", "alpha", "cryptomatte", "layers", "layer names", "raw layer info", "metadata")
-    
+
     FUNCTION = "load_image"
     CATEGORY = "Image/EXR"
-    
+
     @classmethod
     def IS_CHANGED(cls, image_path, normalize=False, **kwargs):
         """
@@ -52,16 +51,16 @@ class LoadExr:
         try:
             if not os.path.isfile(image_path):
                 return float("NaN")  # File doesn't exist, always try to load
-            
+
             stat = os.stat(image_path)
             # Create hash from file path, modification time, size, and normalize parameter
             return f"{image_path}_{stat.st_mtime}_{stat.st_size}_{normalize}"
         except Exception:
             # If we can't access file info, always try to load
             return float("NaN")
-    
-    def load_image(self, image_path: str, normalize: bool = False, 
-                   node_id: str = None, layer_data: dict = None, **kwargs) -> List:
+
+    def load_image(self, image_path: str, normalize: bool = False,
+                   node_id: str = None, layer_data: dict = None, **kwargs) -> list:
         """
         Load a single EXR image with support for multiple layers/channel groups.
         Returns:
@@ -73,20 +72,20 @@ class LoadExr:
         - List of raw channel names from the file (raw layer info)
         - Metadata as JSON string (metadata)
         """
-        
+
         # Check for OIIO availability
         ExrProcessor.check_oiio_availability()
-            
+
         try:
             # Validate single image path
             if not os.path.isfile(image_path):
                 raise FileNotFoundError(f"Image not found: {image_path}")
-            
+
             # Use shared EXR processing functionality
             return ExrProcessor.process_exr_data(image_path, normalize, node_id, layer_data)
-            
+
         except Exception as e:
-            logger.error(f"Error loading EXR file {image_path}: {str(e)}")
+            logger.error(f"Error loading EXR file {image_path}: {e!s}")
             raise
 
 

@@ -7,7 +7,6 @@ import os
 import glob
 import re
 import logging
-from typing import List, Tuple, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +14,13 @@ try:
     from .debug_utils import debug_log
 except ImportError:
     # Use fallback function
-    debug_log = lambda logger, level, simple_msg, verbose_msg=None, **kwargs: getattr(logger, level.lower())(simple_msg)
+    def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
+        getattr(logger, level.lower())(simple_msg)
 
 
 class SequenceHandler:
     """Shared sequence handling functionality for loader and saver nodes"""
-    
+
     @staticmethod
     def detect_sequence_pattern(path: str) -> bool:
         """Detect if the path contains a sequence pattern (#### or ###)"""
@@ -29,7 +29,7 @@ class SequenceHandler:
         # Only check filename portion, require 2+ consecutive # characters
         basename = os.path.basename(path)
         return bool(re.search(r'#{2,}', basename))
-    
+
     @staticmethod
     def get_padding_from_template(template: str) -> int:
         """Extract padding length from #### pattern"""
@@ -37,7 +37,7 @@ class SequenceHandler:
         if match:
             return len(match.group(0))
         return 4  # Default padding
-    
+
     @staticmethod
     def replace_frame_number(filename: str, frame_number: int, padding_length: int = None) -> str:
         """
@@ -65,9 +65,9 @@ class SequenceHandler:
 
         # Replace only the #### placeholder, leave all other characters untouched
         return filename[:match.start()] + padded_frame + filename[match.end():]
-    
+
     @staticmethod
-    def extract_frame_number_from_path(file_path: str, pattern: str = None) -> Optional[int]:
+    def extract_frame_number_from_path(file_path: str, pattern: str = None) -> int | None:
         """Extract frame number from a file path
 
         Args:
@@ -96,9 +96,9 @@ class SequenceHandler:
         if matches:
             return int(matches[-1])
         return None
-    
+
     @staticmethod
-    def find_sequence_files(pattern_path: str) -> List[str]:
+    def find_sequence_files(pattern_path: str) -> list[str]:
         """Find all files matching the sequence pattern"""
         # Find the hash placeholder and count its width
         hash_match = re.search(r'#+', pattern_path)
@@ -121,7 +121,7 @@ class SequenceHandler:
         regex_pattern = re.compile(pattern_for_regex)
 
         # Debug logging
-        debug_log(logger, "debug", f"Pattern matching debug",
+        debug_log(logger, "debug", "Pattern matching debug",
                  f"Original: {pattern_path}\\nRegex: {pattern_for_regex}\\nMatching files: {len(matching_files)}")
 
         valid_files = []
@@ -130,55 +130,55 @@ class SequenceHandler:
                 valid_files.append(file_path)
             else:
                 if len(valid_files) < 3:
-                    debug_log(logger, "debug", f"No match", f"File: {file_path}\\nPattern: {pattern_for_regex}")
+                    debug_log(logger, "debug", "No match", f"File: {file_path}\\nPattern: {pattern_for_regex}")
 
         debug_log(logger, "debug", f"Found {len(valid_files)} sequence files",
                  f"Pattern: {pattern_path}, Found {len(valid_files)} files matching pattern")
 
         return sorted(valid_files)
-    
+
     @staticmethod
-    def extract_frame_numbers(file_paths: List[str]) -> List[Tuple[int, str]]:
+    def extract_frame_numbers(file_paths: list[str]) -> list[tuple[int, str]]:
         """Extract frame numbers from file paths and return sorted list of (frame_num, path) tuples"""
         frame_info = []
         for file_path in file_paths:
             frame_num = SequenceHandler.extract_frame_number_from_path(file_path)
             if frame_num is not None:
                 frame_info.append((frame_num, file_path))
-        
+
         frame_info.sort()  # Sort by frame number
         return frame_info
-    
+
     @staticmethod
-    def generate_frame_paths(pattern_path: str, start_frame: int, end_frame: int, frame_step: int) -> List[str]:
+    def generate_frame_paths(pattern_path: str, start_frame: int, end_frame: int, frame_step: int) -> list[str]:
         """Generate list of frame paths based on pattern and parameters using improved regex approach"""
         frame_paths = []
-        
+
         current_frame = start_frame
         while current_frame <= end_frame:
             frame_path = SequenceHandler.replace_frame_number(pattern_path, current_frame)
             frame_paths.append(frame_path)
             current_frame += frame_step
-        
+
         return frame_paths
-    
+
     @staticmethod
-    def select_sequence_frames(available_frames: List[Tuple[int, str]], start_frame: int, 
-                             end_frame: int, frame_step: int) -> List[str]:
+    def select_sequence_frames(available_frames: list[tuple[int, str]], start_frame: int,
+                             end_frame: int, frame_step: int) -> list[str]:
         """
         Select specific frames from available sequence based on parameters
-        
+
         Args:
             available_frames: List of (frame_number, file_path) tuples
             start_frame: Starting frame number
             end_frame: Ending frame number
             frame_step: Step between frames
-        
+
         Returns:
             List of selected file paths (strict selection - no fallbacks)
         """
         selected_frames = []
-        
+
         # Generate expected frame numbers and find exact matches
         current_frame = start_frame
         while current_frame <= end_frame:
@@ -189,22 +189,22 @@ class SequenceHandler:
                     selected_frames.append(file_path)
                     found = True
                     break
-            
+
             # If frame not found, append None to maintain sequence positions
             if not found:
                 selected_frames.append(None)
-            
+
             current_frame += frame_step
-        
+
         expected_count = len(range(start_frame, end_frame + 1, frame_step))
         debug_log(logger, "debug", f"Selected {len([f for f in selected_frames if f is not None])} of {expected_count} frames",
                  f"Selected {len([f for f in selected_frames if f is not None])} frames from {len(available_frames)} available " +
                  f"(start={start_frame}, end={end_frame}, step={frame_step})")
-        
+
         return selected_frames
-    
+
     @staticmethod
-    def validate_sequence_parameters(start_frame: int, end_frame: int, frame_step: int) -> Tuple[int, int, int]:
+    def validate_sequence_parameters(start_frame: int, end_frame: int, frame_step: int) -> tuple[int, int, int]:
         """Validate and sanitize sequence parameters"""
         # Ensure valid values - no fallback defaults
         if start_frame is None:
@@ -216,26 +216,26 @@ class SequenceHandler:
         if frame_step is None:
             raise ValueError("frame_step parameter is required and cannot be None. " +
                            "Make sure the node is in 'sequence' mode and the sequence widgets are visible.")
-            
+
         start_frame = max(0, start_frame)
         end_frame = max(start_frame, end_frame)
         frame_step = max(1, frame_step)
-        
+
         return start_frame, end_frame, frame_step
-    
+
     @staticmethod
-    def get_sequence_info(pattern_path: str) -> Dict:
+    def get_sequence_info(pattern_path: str) -> dict:
         """Get information about an available sequence"""
         if not SequenceHandler.detect_sequence_pattern(pattern_path):
             return {"is_sequence": False}
-        
+
         sequence_files = SequenceHandler.find_sequence_files(pattern_path)
         if not sequence_files:
             return {"is_sequence": True, "available_frames": 0}
-        
+
         frame_info = SequenceHandler.extract_frame_numbers(sequence_files)
         frame_numbers = [fn for fn, fp in frame_info]
-        
+
         return {
             "is_sequence": True,
             "available_frames": len(sequence_files),
@@ -247,9 +247,9 @@ class SequenceHandler:
 
 class DynamicUIHelper:
     """Helper for creating dynamic UI widgets in ComfyUI nodes"""
-    
+
     @staticmethod
-    def create_sequence_widgets(default_start: int = 1, default_end: int = 100, default_step: int = 1) -> Dict:
+    def create_sequence_widgets(default_start: int = 1, default_end: int = 100, default_step: int = 1) -> dict:
         """Create standard sequence control widgets"""
         return {
             "sequence": [
@@ -258,18 +258,18 @@ class DynamicUIHelper:
                 ["frame_step", "INT", {"default": default_step, "min": 1, "max": 100}]
             ]
         }
-    
+
     @staticmethod
-    def create_versioning_widgets() -> Dict:
+    def create_versioning_widgets() -> dict:
         """Create versioning control widgets"""
         return {
             "versioning": [
                 ["version", "INT", {"default": 1, "min": -1, "max": 999}]
             ]
         }
-    
+
     @staticmethod
-    def create_save_mode_widgets() -> Dict:
+    def create_save_mode_widgets() -> dict:
         """Create save mode control widgets for saver"""
         return {
             "sequence": [

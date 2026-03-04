@@ -123,7 +123,7 @@ class VectorscopeNode(io.ComfyNode):
             return io.NodeOutput(ui={"vectorscope_data": [result]})
 
         except Exception as e:
-            debug_log(logger, "error", "Vectorscope computation failed", f"Error computing vectorscope: {str(e)}")
+            debug_log(logger, "error", "Vectorscope computation failed", f"Error computing vectorscope: {e!s}")
             raise
 
     @classmethod

@@ -96,7 +96,7 @@ class HistogramNode(io.ComfyNode):
             return io.NodeOutput(ui={"histogram_data": [result]})
 
         except Exception as e:
-            debug_log(logger, "error", "Histogram computation failed", f"Error computing histogram: {str(e)}")
+            debug_log(logger, "error", "Histogram computation failed", f"Error computing histogram: {e!s}")
             raise
 
     @classmethod

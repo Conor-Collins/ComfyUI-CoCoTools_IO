@@ -4,9 +4,7 @@ import numpy as np
 import tifffile
 import folder_paths
 import logging
-from typing import Dict, Tuple, Optional, List
 import OpenImageIO as oiio
-from datetime import datetime
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2 as cv
@@ -26,14 +24,14 @@ except ImportError:
         return f"{name} shape={tensor_shape}" if name else f"shape={tensor_shape}"
     def generate_preview_for_comfyui(image_tensor, source_path="", is_sequence=False, frame_index=0, full_size=False):
         return None
-    
+
     # Fallback sequence handler
     class SequenceHandler:
         @staticmethod
         def detect_sequence_pattern(path): return '####' in path if path else False
         @staticmethod
         def generate_frame_paths(pattern, start, count, step): return []
-    
+
     class DynamicUIHelper:
         @staticmethod
         def create_save_mode_widgets(): return {"sequence": [["start_frame", "INT", {"default": 1}], ["frame_step", "INT", {"default": 1}]]}
@@ -42,7 +40,7 @@ except ImportError:
 
 class SaverNode:
     """Optimized image saver node with consistent bit depth handling"""
-    
+
     # Format specifications
     FORMAT_SPECS = {
         "exr": {"depths": [16, 32], "opencv": False},  # EXR only supports half and full float
@@ -51,7 +49,7 @@ class SaverNode:
         "webp": {"depths": [8], "opencv": True},
         "tiff": {"depths": [8, 16, 32], "opencv": False}
     }
-    
+
     @classmethod
     def INPUT_TYPES(cls):
         # Define format-specific widgets
@@ -76,11 +74,11 @@ class SaverNode:
                 ["quality", "INT", {"default": 95, "min": 1, "max": 100}]
             ]
         }
-        
+
         # Create sequence and versioning widgets using shared utilities
-        save_mode_widgets = DynamicUIHelper.create_save_mode_widgets()
-        versioning_widgets = DynamicUIHelper.create_versioning_widgets()
-        
+        _save_mode_widgets = DynamicUIHelper.create_save_mode_widgets()
+        _versioning_widgets = DynamicUIHelper.create_versioning_widgets()
+
         return {
             "required": {
                 "images": ("IMAGE",),
@@ -106,7 +104,7 @@ class SaverNode:
     FUNCTION = "save_images"
     OUTPUT_NODE = True
     CATEGORY = "COCO Tools/Savers"
-    
+
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")  # Always execute
@@ -145,13 +143,13 @@ class SaverNode:
         """Proper grayscale conversion using luminance weights"""
         if len(img.shape) == 2 or img.shape[-1] == 1:
             return img if img.shape[-1] == 1 else img[..., np.newaxis]
-        
+
         if img.shape[-1] >= 3:
             # ITU-R BT.709 luminance weights
             weights = np.array([0.2126, 0.7152, 0.0722])
             gray = np.dot(img[..., :3], weights)
             return gray[..., np.newaxis]
-        
+
         return img[..., 0:1]  # Fallback for 2-channel images
 
     def prepare_image(self, img_tensor: torch.Tensor, save_as_grayscale: bool, file_type: str = "png") -> np.ndarray:
@@ -163,10 +161,7 @@ class SaverNode:
             img_np = img_tensor.cpu().numpy()
 
         # Clip range based on format: EXR preserves full HDR range, others clip to [0,1]
-        if file_type == "exr":
-            img_np = img_np.astype(np.float32)
-        else:
-            img_np = np.clip(img_np, 0, 1).astype(np.float32)
+        img_np = img_np.astype(np.float32) if file_type == "exr" else np.clip(img_np, 0, 1).astype(np.float32)
 
         # Handle channels
         if len(img_np.shape) == 2:
@@ -187,17 +182,17 @@ class SaverNode:
         else:  # 32
             data = img.astype(np.float32)
             pixel_type = oiio.FLOAT
-        
+
         data = np.ascontiguousarray(data)
         channels = 1 if data.ndim == 2 else data.shape[-1]
-        
+
         spec = oiio.ImageSpec(data.shape[1], data.shape[0], channels, pixel_type)
         spec.attribute("compression", compression)
         spec.attribute("Software", "COCO Tools")
-        
+
         buf = oiio.ImageBuf(spec)
         buf.set_pixels(oiio.ROI(), data)
-        
+
         if not buf.write(path):
             raise RuntimeError(f"Failed to write EXR: {oiio.geterror()}")
 
@@ -214,17 +209,17 @@ class SaverNode:
             # Fallback to 8-bit for unsupported depths
             data = (img * 255).astype(np.uint8)
             pixel_type = oiio.UINT8
-        
+
         data = np.ascontiguousarray(data)
         channels = 1 if data.ndim == 2 else data.shape[-1]
-        
+
         spec = oiio.ImageSpec(data.shape[1], data.shape[0], channels, pixel_type)
         spec.attribute("compression", "zip")
         spec.attribute("png:compressionLevel", 9)
-        
+
         buf = oiio.ImageBuf(spec)
         buf.set_pixels(oiio.ROI(), data)
-        
+
         if not buf.write(path):
             raise RuntimeError(f"Failed to write PNG: {oiio.geterror()}")
 
@@ -232,11 +227,11 @@ class SaverNode:
         """Save JPEG/WebP using OpenCV"""
         # Convert to 8-bit BGR
         data = (img * 255).astype(np.uint8)
-        
+
         # Convert RGB to BGR only for 3+ channel images
         if data.shape[-1] >= 3:
             data = cv.cvtColor(data, cv.COLOR_RGB2BGR)
-        
+
         # Save with quality setting
         if path.endswith(('.jpg', '.jpeg')):
             cv.imwrite(path, data, [cv.IMWRITE_JPEG_QUALITY, quality])
@@ -251,10 +246,10 @@ class SaverNode:
             data = (img * 65535).astype(np.uint16)
         else:  # 32
             data = img.astype(np.float32)
-        
+
         # Determine photometric interpretation
         photometric = 'minisblack' if data.shape[-1] == 1 else 'rgb'
-        
+
         tifffile.imwrite(path, data, photometric=photometric)
 
     def get_unique_filepath(self, base_path: str) -> str:
@@ -276,43 +271,43 @@ class SaverNode:
                 return new_path
             counter += 1
 
-    def save_images(self, images, file_path, filename, save_mode="single", file_type="png", 
+    def save_images(self, images, file_path, filename, save_mode="single", file_type="png",
                    bit_depth=None, quality=None, save_as_grayscale=None, use_versioning=False,
-                   version=1, start_frame=None, frame_step=None, prompt=None, extra_pnginfo=None, 
+                   version=1, start_frame=None, frame_step=None, prompt=None, extra_pnginfo=None,
                    exr_compression=None, **kwargs):
         """Main save function with optimized pipeline - handles missing contextual inputs and sequence mode"""
-        
+
         # Provide format-specific defaults for missing inputs
         if bit_depth is None:
             bit_depth = "32" if file_type == "exr" else "16" if file_type in ["png", "tiff"] else "8"
-        
+
         if quality is None:
             quality = 95  # Default for JPG/WebP
-            
+
         if save_as_grayscale is None:
             save_as_grayscale = False
-            
+
         if exr_compression is None:
             exr_compression = "zips"  # Default for EXR
-            
+
         # Handle sequence parameters with defaults
         if start_frame is None:
             start_frame = 1
         if frame_step is None:
             frame_step = 1
-            
+
         try:
             # Validate inputs
             bit_depth = int(bit_depth)
             file_type = file_type.lower()
-            
+
             # Determine if this is sequence mode and validate pattern
             is_sequence_mode = save_mode == "sequence" or SequenceHandler.detect_sequence_pattern(filename)
-            
+
             debug_log(logger, "debug", f"Saving {len(images)} images in {save_mode} mode",
                      f"Save mode: {save_mode}, Is sequence: {is_sequence_mode}, File type: {file_type}")
             bit_depth = self.validate_bit_depth(file_type, bit_depth)
-            
+
             # Build base path
             if file_path:
                 full_path = os.path.join(self.output_dir, file_path) if not os.path.isabs(file_path) else file_path
@@ -320,17 +315,17 @@ class SaverNode:
                 base_path = os.path.join(full_path, filename)
             else:
                 base_path = os.path.join(self.output_dir, filename)
-            
+
             # Add version string
             version_str = f"_v{version:03d}" if use_versioning and version >= 0 else ""
-            
+
             # Track saved files for preview
             saved_files = []
-            
+
             # Process each image - handle single vs sequence mode
             for i, img_tensor in enumerate(images):
                 img_np = self.prepare_image(img_tensor, save_as_grayscale, file_type)
-                
+
                 # Build output path based on mode
                 if is_sequence_mode and SequenceHandler.detect_sequence_pattern(filename):
                     # Sequence mode with #### pattern
@@ -345,9 +340,9 @@ class SaverNode:
                     # Single mode - use index for multiple images
                     frame_str = f"_{i}" if len(images) > 1 else ""
                     out_path = f"{base_path}{version_str}{frame_str}.{file_type}"
-                
+
                 out_path = self.get_unique_filepath(out_path)
-                
+
                 # Save based on format
                 if file_type == "exr":
                     self.save_exr(img_np, out_path, bit_depth, exr_compression)
@@ -357,7 +352,7 @@ class SaverNode:
                     self.save_opencv_format(img_np, out_path, quality)
                 elif file_type == "tiff":
                     self.save_tiff(img_np, out_path, bit_depth)
-                
+
                 # Track saved file info
                 saved_files.append({
                     "filename": os.path.basename(out_path),
@@ -366,19 +361,19 @@ class SaverNode:
                     "bitDepth": bit_depth,
                     "index": i
                 })
-            
+
             # Generate full resolution preview for saved images
             preview_data = generate_preview_for_comfyui(
-                images, 
+                images,
                 source_path=f"saver_{len(saved_files)}_files",
                 is_sequence=is_sequence_mode or len(saved_files) > 1,
                 frame_index=0
             )
-            
+
             # Log completion
-            debug_log(logger, "info", f"Saved {len(saved_files)} files successfully", 
+            debug_log(logger, "info", f"Saved {len(saved_files)} files successfully",
                      f"Successfully saved {len(saved_files)} files: {[f['filename'] for f in saved_files]}")
-            
+
             # Return with preview and saved file info
             result = {
                 "ui": {
@@ -386,9 +381,9 @@ class SaverNode:
                     "saved_files": saved_files
                 }
             }
-            
+
             return result
-            
+
         except Exception as e:
-            debug_log(logger, "error", "Save operation failed", f"Saver error: {str(e)}")
-            raise RuntimeError(f"Saver error: {str(e)}") from e
+            debug_log(logger, "error", "Save operation failed", f"Saver error: {e!s}")
+            raise RuntimeError(f"Saver error: {e!s}") from e

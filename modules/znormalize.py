@@ -1,3 +1,4 @@
+import contextlib
 import torch
 import logging
 
@@ -32,7 +33,7 @@ class ZNormalizeNode:
             "required": {
                 "image": ("IMAGE",),  # Changed to accept IMAGE tensor
                 "min_depth": ("FLOAT", {
-                    "default": 0.0, 
+                    "default": 0.0,
                     "min": -10000.0,
                     "max": 10000.0,
                     "step": 0.01,
@@ -52,7 +53,7 @@ class ZNormalizeNode:
     RETURN_NAMES = ("normalized_depth_image",)
     FUNCTION = "normalize_depth"
     CATEGORY = "COCO Tools/Processing"
-    
+
     @classmethod
     def IS_CHANGED(cls, image, min_depth, max_depth, **kwargs):
         """
@@ -75,10 +76,8 @@ class ZNormalizeNode:
             ]
             samples = []
             for idx in sample_indices:
-                try:
+                with contextlib.suppress(IndexError, RuntimeError):
                     samples.append(f"{image[idx].item():.6f}")
-                except (IndexError, RuntimeError):
-                    pass
             sample_hash = "_".join(samples)
 
             return f"{tensor_hash}_{param_hash}_{sample_hash}"
@@ -89,57 +88,57 @@ class ZNormalizeNode:
     def normalize_depth(self, image, min_depth, max_depth):
         """
         Normalize depth image tensor with full batch processing support.
-        
+
         Args:
             image: Input tensor in [B,H,W,C] format
             min_depth: Minimum depth value for normalization
             max_depth: Maximum depth value for normalization
-            
+
         Returns:
             Normalized tensor in [B,H,W,C] format
         """
         try:
             # Log batch processing info using utility
             log_batch_processing(image, f"Normalizing depth range=[{min_depth}, {max_depth}]", "depth")
-            
+
             # Validate input tensor using utility
-            batch_size, height, width, channels = validate_4d_batch(image, "depth image")
-            
+            batch_size, _height, _width, _channels = validate_4d_batch(image, "depth image")
+
             # Validate depth range
             if max_depth <= min_depth:
                 raise ValueError(f"max_depth ({max_depth}) must be greater than min_depth ({min_depth})")
-            
+
             # Create a copy to avoid modifying the input
             normalized = image.clone()
-            
+
             # Log input value range for debugging
             input_min, input_max = normalized.min().item(), normalized.max().item()
             debug_log(logger, "debug", f"Input range: [{input_min:.6f}, {input_max:.6f}]",
                      f"Input depth values range from {input_min:.6f} to {input_max:.6f}")
-            
+
             # Normalize depth values - this operation is automatically batch-aware
             depth_range = max_depth - min_depth
             normalized = (normalized - min_depth) / depth_range
-            
+
             # Clip values to [0,1] range - also batch-aware
             normalized = torch.clamp(normalized, 0.0, 1.0)
-            
+
             # Log normalized value range
             norm_min, norm_max = normalized.min().item(), normalized.max().item()
             debug_log(logger, "debug", f"Normalized to: [{norm_min:.6f}, {norm_max:.6f}]",
                      f"After normalization, values range from {norm_min:.6f} to {norm_max:.6f}")
-            
+
             # Handle single channel depth maps by replicating to RGB
             if normalized.shape[-1] == 1:
                 debug_log(logger, "debug", "Converting single channel to RGB",
                          "Single channel depth detected, replicating to RGB channels")
                 normalized = normalized.repeat(1, 1, 1, 3)
-            
+
             debug_log(logger, "debug", f"Depth normalization complete: {format_tensor_info(normalized.shape, normalized.dtype)}",
                      f"Successfully normalized {batch_size} depth images with final shape {normalized.shape}")
-                
+
             return (normalized,)
 
         except Exception as e:
-            debug_log(logger, "error", "Depth normalization failed", f"Error normalizing depth image: {str(e)}")
+            debug_log(logger, "error", "Depth normalization failed", f"Error normalizing depth image: {e!s}")
             raise

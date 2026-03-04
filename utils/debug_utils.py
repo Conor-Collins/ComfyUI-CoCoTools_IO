@@ -2,7 +2,7 @@
 Debug utilities for COCO Tools with simple/verbose logging control.
 """
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 # Global debug mode control - default to simple
 DEBUG_MODE = "simple"  # "simple" or "verbose"
@@ -31,10 +31,10 @@ def get_debug_mode() -> str:
     """Get current debug mode"""
     return DEBUG_MODE
 
-def debug_log(logger: logging.Logger, level: str, simple_msg: str, verbose_msg: Optional[str] = None, **kwargs):
+def debug_log(logger: logging.Logger, level: str, simple_msg: str, verbose_msg: str | None = None, **kwargs):
     """
     Log with debug verbosity control.
-    
+
     Args:
         logger: Logger instance
         level: Log level ("info", "warning", "error", "debug")
@@ -43,12 +43,12 @@ def debug_log(logger: logging.Logger, level: str, simple_msg: str, verbose_msg: 
         **kwargs: Additional context for verbose mode
     """
     message = simple_msg if DEBUG_MODE == "simple" else (verbose_msg or simple_msg)
-    
+
     # Add context info in verbose mode
     if DEBUG_MODE == "verbose" and kwargs:
         context_parts = [f"{k}={v}" for k, v in kwargs.items()]
         message += f" [{', '.join(context_parts)}]"
-    
+
     # Log based on level
     if level.lower() == "info":
         logger.info(message)
@@ -59,7 +59,7 @@ def debug_log(logger: logging.Logger, level: str, simple_msg: str, verbose_msg: 
     elif level.lower() == "debug":
         logger.debug(message)
 
-def format_layer_names(layer_names: List[str], max_simple: int = None) -> str:
+def format_layer_names(layer_names: list[str], max_simple: int = None) -> str:
     """Format layer names for logging - show all layer names as they're important for users"""
     # Always show all layer names as users need to know what's available
     return ', '.join(layer_names)

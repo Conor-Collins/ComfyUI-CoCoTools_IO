@@ -2,7 +2,6 @@ import os
 import logging
 import torch
 import json
-from typing import List
 
 # Import centralized logging setup
 try:
@@ -20,7 +19,7 @@ try:
     from ..utils.debug_utils import debug_log, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
 except ImportError as e:
-    raise ImportError(f"Required utilities are not available: {str(e)}. Please ensure utils are properly installed.")
+    raise ImportError(f"Required utilities are not available: {e!s}. Please ensure utils are properly installed.") from e
 
 
 class LoadExrSequence:
@@ -63,10 +62,10 @@ class LoadExrSequence:
 
     RETURN_TYPES = ("IMAGE", "MASK", "CRYPTOMATTE", "LAYERS", "STRING", "STRING", "STRING")
     RETURN_NAMES = ("sequence", "alpha", "cryptomatte", "layers", "layer names", "raw layer info", "metadata")
-    
+
     FUNCTION = "load_sequence"
     CATEGORY = "Image/EXR"
-    
+
     @classmethod
     def IS_CHANGED(cls, sequence_path, start_frame, end_frame, frame_step, normalize=False, **kwargs):
         """
@@ -77,7 +76,7 @@ class LoadExrSequence:
             # Validate sequence pattern first
             if not SequenceHandler.detect_sequence_pattern(sequence_path):
                 return float("NaN")  # Invalid pattern, always try
-            
+
             # Validate and sanitize sequence parameters
             try:
                 start_frame, end_frame, frame_step = SequenceHandler.validate_sequence_parameters(
@@ -85,24 +84,24 @@ class LoadExrSequence:
                 )
             except Exception:
                 return float("NaN")  # Invalid parameters, always try
-            
+
             # Find existing sequence files
             try:
                 existing_sequence_files = SequenceHandler.find_sequence_files(sequence_path)
                 if not existing_sequence_files:
                     return float("NaN")  # No files found, always try
-                
+
                 # Extract frame numbers and select frames that would be loaded
                 frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files)
                 selected_frames = SequenceHandler.select_sequence_frames(
                     frame_info, start_frame, end_frame, frame_step
                 )
-                
+
                 if not selected_frames:
                     return float("NaN")  # No frames selected, always try
             except Exception:
                 return float("NaN")  # Error in sequence processing, always try
-            
+
             # Create hash from all file stats and parameters
             file_stats = []
             for frame_path in selected_frames:
@@ -114,19 +113,19 @@ class LoadExrSequence:
                         file_stats.append("error")
                 else:
                     file_stats.append("missing")
-            
+
             # Include all parameters that affect the result
             param_hash = f"{sequence_path}_{start_frame}_{end_frame}_{frame_step}_{normalize}"
             files_hash = "_".join(file_stats)
-            
+
             return f"{param_hash}_{files_hash}"
-            
+
         except Exception:
             # If anything goes wrong, always try to load
             return float("NaN")
 
     def load_sequence(self, sequence_path: str, start_frame: int, end_frame: int, frame_step: int,
-                     normalize: bool = False, node_id: str = None, layer_data: dict = None, **kwargs) -> List:
+                     normalize: bool = False, node_id: str = None, layer_data: dict = None, **kwargs) -> list:
         """
         Load a sequence of EXR files and return batched tensors.
         Returns:
@@ -138,46 +137,46 @@ class LoadExrSequence:
         - List of raw channel names from the files (raw layer info)
         - Metadata as JSON string with sequence info (metadata)
         """
-        
+
         # Check for OIIO availability
         ExrProcessor.check_oiio_availability()
-            
+
         try:
             # Validate sequence pattern
             if not SequenceHandler.detect_sequence_pattern(sequence_path):
                 raise ValueError(f"Sequence path must contain #### pattern for frame numbers: {sequence_path}")
-            
+
             # Validate and sanitize sequence parameters
             start_frame, end_frame, frame_step = SequenceHandler.validate_sequence_parameters(
                 start_frame, end_frame, frame_step
             )
-            
+
             frame_count = len(range(start_frame, end_frame + 1, frame_step))
             debug_log(logger, "debug", f"Loading EXR sequence: {frame_count} frames",
                      f"Loading EXR sequence: {sequence_path} (start={start_frame}, end={end_frame}, step={frame_step})")
-            
+
             # Find existing sequence files
             existing_sequence_files = SequenceHandler.find_sequence_files(sequence_path)
             debug_log(logger, "debug", f"Found {len(existing_sequence_files)} sequence files",
                      f"SequenceHandler found {len(existing_sequence_files)} files for pattern: {sequence_path}")
-            
+
             if not existing_sequence_files:
                 logger.error(f"No sequence files found for pattern: {sequence_path} (frames {start_frame}-{end_frame} step {frame_step})")
                 raise FileNotFoundError(f"No sequence frames found for pattern: {sequence_path}")
-            
+
             # Extract frame numbers and select frames
             frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files)
             selected_frames = SequenceHandler.select_sequence_frames(
                 frame_info, start_frame, end_frame, frame_step
             )
-            
+
             if not selected_frames:
                 logger.error(f"No frames selected for range {start_frame}-{end_frame} step {frame_step} ({len(existing_sequence_files)} files available)")
                 raise ValueError(f"No frames selected from sequence for range {start_frame}-{end_frame} step {frame_step}")
-            
+
             debug_log(logger, "debug", f"Selected {len(selected_frames)} frames for loading",
                      f"Loading {len(selected_frames)} frames from sequence")
-            
+
             # Find first valid frame to establish structure
             first_valid_frame = None
             first_frame_index = 0
@@ -186,23 +185,23 @@ class LoadExrSequence:
                     first_valid_frame = frame_path
                     first_frame_index = i
                     break
-            
+
             if first_valid_frame is None:
                 raise ValueError(f"No valid frames found in sequence range {start_frame}-{end_frame} step {frame_step}")
-            
+
             # Load first valid frame to establish structure
             try:
                 first_frame_result = ExrProcessor.process_exr_data(first_valid_frame, normalize, node_id, layer_data)
             except Exception as e:
                 logger.error(f"Failed to load first frame {first_valid_frame}: {e}")
                 raise
-            
+
             # Handle result format (dict if preview generated, list if not)
             if isinstance(first_frame_result, dict):
                 first_frame_data = first_frame_result["result"]
             else:
                 first_frame_data = first_frame_result
-            
+
             # Initialize empty batch lists to preserve correct ordering
             batch_rgb_list = []
             batch_alpha_list = []
@@ -250,20 +249,17 @@ class LoadExrSequence:
                         if crypto_name in batch_cryptomatte_dict:
                             batch_cryptomatte_dict[crypto_name].append(crypto_tensor)
                     continue
-                    
+
                 try:
                     frame_result = ExrProcessor.process_exr_data(frame_path, normalize, node_id, layer_data)
-                    
+
                     # Handle result format (dict if preview generated, list if not)
-                    if isinstance(frame_result, dict):
-                        frame_data = frame_result["result"]
-                    else:
-                        frame_data = frame_result
-                    
+                    frame_data = frame_result["result"] if isinstance(frame_result, dict) else frame_result
+
                     # Add to batch lists
                     batch_rgb_list.append(frame_data[0])
                     batch_alpha_list.append(frame_data[1])
-                    
+
                     # Add layers to batch
                     for layer_name, layer_tensor in frame_data[3].items():
                         if layer_name in batch_layers_dict:
@@ -277,7 +273,7 @@ class LoadExrSequence:
                             batch_cryptomatte_dict[crypto_name].append(crypto_tensor)
                         else:
                             logger.debug(f"Cryptomatte '{crypto_name}' not in first frame, skipping")
-                            
+
                 except Exception as e:
                     logger.warning(f"Failed to load frame {i+1}/{len(selected_frames)}: {e}")
                     # Create white placeholder frame for failed loads
@@ -285,35 +281,35 @@ class LoadExrSequence:
                     white_alpha = torch.ones_like(first_frame_data[1])
                     batch_rgb_list.append(white_rgb)
                     batch_alpha_list.append(white_alpha)
-                    
+
                     # Create white placeholders for layers
                     for layer_name, layer_tensor in first_frame_data[3].items():
                         if layer_name in batch_layers_dict:
                             white_layer = torch.ones_like(layer_tensor)
                             batch_layers_dict[layer_name].append(white_layer)
-                    
+
                     # Create white placeholders for cryptomatte
                     for crypto_name, crypto_tensor in first_frame_data[2].items():
                         if crypto_name in batch_cryptomatte_dict:
                             white_crypto = torch.ones_like(crypto_tensor)
                             batch_cryptomatte_dict[crypto_name].append(white_crypto)
-            
+
             # Stack tensors into batches
             final_rgb = torch.cat(batch_rgb_list, dim=0)
             final_alpha = torch.cat(batch_alpha_list, dim=0)
-            
+
             # Stack layer tensors
             final_layers = {}
             for layer_name, tensor_list in batch_layers_dict.items():
                 if tensor_list:
                     final_layers[layer_name] = torch.cat(tensor_list, dim=0)
-            
+
             # Stack cryptomatte tensors
             final_cryptomatte = {}
             for crypto_name, tensor_list in batch_cryptomatte_dict.items():
                 if tensor_list:
                     final_cryptomatte[crypto_name] = torch.cat(tensor_list, dim=0)
-            
+
             # Update metadata with sequence information
             metadata_str = first_frame_data[6]  # metadata is at index 6
             metadata = json.loads(metadata_str) if metadata_str else {}
@@ -328,15 +324,15 @@ class LoadExrSequence:
                 "missing_frames": [i for i, f in enumerate(selected_frames) if f is None]
             }
             metadata_json = json.dumps(metadata)
-            
+
             # Log final batch information
             debug_log(logger, "info", f"Sequence loaded: {len(selected_frames)} frames, RGB shape: {format_tensor_info(final_rgb.shape, final_rgb.dtype)}",
                      f"Successfully loaded sequence: {len(selected_frames)} frames, RGB batch shape: {final_rgb.shape}, "
                      f"Alpha batch shape: {final_alpha.shape}, {len(final_layers)} layer types, {len(final_cryptomatte)} cryptomatte types")
-            
+
             # Generate preview for sequence (first frame) at full resolution
             preview_result = generate_preview_for_comfyui(final_rgb, sequence_path, is_sequence=True, frame_index=0)
-            
+
             # Return same structure as single image but with batched tensors
             result = [
                 final_rgb,                # sequence
@@ -347,13 +343,13 @@ class LoadExrSequence:
                 first_frame_data[5],      # raw layer info (layer names)
                 metadata_json             # metadata
             ]
-            
+
             # Return with preview if generated
             if preview_result:
                 return {"ui": {"images": preview_result}, "result": result}
             else:
                 return result
-            
+
         except Exception as e:
-            logger.error(f"Error loading EXR sequence {sequence_path}: {str(e)}")
+            logger.error(f"Error loading EXR sequence {sequence_path}: {e!s}")
             raise

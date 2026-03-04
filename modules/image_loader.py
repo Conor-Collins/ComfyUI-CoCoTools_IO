@@ -3,7 +3,6 @@ import logging
 import numpy as np
 import torch
 from PIL import Image, ImageOps
-from typing import Tuple
 
 # Import centralized logging setup
 try:
@@ -36,14 +35,14 @@ class ImageLoader:
     RETURN_NAMES = ("image", "mask", "metadata")
     FUNCTION = "load_regular_image"
     CATEGORY = "COCO Tools/Loaders"
-    
+
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")  # Always execute
 
     def load_regular_image(
         self, image_path: str, normalize: bool = True, node_id: str = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, str]:
+    ) -> tuple[torch.Tensor, torch.Tensor, str]:
         """
         Main function to load and process a regular image.
         Supports formats like PNG, JPG, and WebP.
@@ -100,7 +99,7 @@ class ImageLoader:
 
         except Exception as e:
             logger.error(f"Error loading image {image_path}: {e}")
-            raise ValueError(f"Error loading image {image_path}: {e}")
+            raise ValueError(f"Error loading image {image_path}: {e}") from e
 
     @staticmethod
     def normalize_image(image: torch.Tensor) -> torch.Tensor:

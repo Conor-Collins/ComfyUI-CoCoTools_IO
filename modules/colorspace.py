@@ -1,8 +1,8 @@
+import contextlib
 import torch
 import numpy as np
 import colour
 import logging
-from typing import Tuple
 
 # Import batch processing utilities
 try:
@@ -17,7 +17,7 @@ except ImportError:
         def reshape_for_processing(tensor, preserve_alpha=True):
             img_np = tensor.cpu().numpy()
             return img_np.reshape(-1, img_np.shape[-1]), None, img_np.shape
-        @staticmethod  
+        @staticmethod
         def reshape_from_processing(processed_rgb, alpha_channel, original_shape, target_device):
             return torch.from_numpy(processed_rgb.reshape(original_shape)).to(target_device)
     def log_batch_processing(tensor, operation, name="tensor"):
@@ -93,7 +93,7 @@ class ColorspaceNode:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "convert_colorspace"
     CATEGORY = "COCO Tools/Processing"
-    
+
     @classmethod
     def IS_CHANGED(cls, images, from_colorspace, to_colorspace, **kwargs):
         """
@@ -116,10 +116,8 @@ class ColorspaceNode:
             ]
             samples = []
             for idx in sample_indices:
-                try:
+                with contextlib.suppress(IndexError, RuntimeError):
                     samples.append(f"{images[idx].item():.6f}")
-                except (IndexError, RuntimeError):
-                    pass
             sample_hash = "_".join(samples)
 
             return f"{tensor_hash}_{param_hash}_{sample_hash}"
@@ -132,11 +130,11 @@ class ColorspaceNode:
         # Explicitly encoded spaces
         if colorspace_name in self.encoded_spaces:
             return True
-        
+
         # Linear spaces are not encoded
         if "Linear" in colorspace_name:
             return False
-            
+
         # Default encoding status for common colorspaces
         default_encoded = {
             "sRGB": True,
@@ -148,11 +146,11 @@ class ColorspaceNode:
             "ACEScg": False,      # Linear by default
             "Raw": False          # Raw is always linear
         }
-        
+
         # Check if the colorspace is in the default encoding status dictionary
         if colorspace_name in default_encoded:
             return default_encoded[colorspace_name]
-            
+
         # For unknown colorspaces, assume they are linear
         return False
 
@@ -230,62 +228,62 @@ class ColorspaceNode:
         else:
             return rgb
 
-    def convert_colorspace(self, images: torch.Tensor, from_colorspace: str, to_colorspace: str) -> Tuple[torch.Tensor]:
+    def convert_colorspace(self, images: torch.Tensor, from_colorspace: str, to_colorspace: str) -> tuple[torch.Tensor]:
         """
         Convert images between colorspaces using colour-science library.
-        
+
         Args:
             images: Input images as torch tensor [B, H, W, C]
             from_colorspace: Source colorspace name
             to_colorspace: Target colorspace name
-            
+
         Returns:
             Tuple containing the converted images as torch tensor
         """
         # Log batch processing info
         log_batch_processing(images, f"Converting from '{from_colorspace}' to '{to_colorspace}'", "input")
-        
+
         # If source and target are the same, return original
         if from_colorspace == to_colorspace:
             logger.debug("Source and target colorspaces are the same")
             return (images,)
-        
+
         # Convert to numpy
         img_np = images.cpu().numpy()
         logger.debug(f"Input range: min={img_np.min():.6f}, max={img_np.max():.6f}")
-        
+
         # Handle problematic values
         if np.isnan(img_np).any() or np.isinf(img_np).any():
             logger.warning("Input contains NaN/Inf values, cleaning...")
             img_np = np.nan_to_num(img_np, nan=0.0, posinf=1.0, neginf=0.0)
             images = torch.from_numpy(img_np).to(images.device)
-        
+
         try:
             # Handle special cases first
             if from_colorspace == "Raw" or to_colorspace == "Raw":
                 logger.debug("Raw colorspace detected, returning input unchanged")
                 return (images,)
-            
+
             # Get the colour-science colorspace names
             from_cs = self.colorspace_mapping.get(from_colorspace)
             to_cs = self.colorspace_mapping.get(to_colorspace)
-            
+
             if not from_cs or not to_cs:
                 logger.error(f"Unsupported colorspaces: {from_colorspace} -> {to_colorspace}")
                 return (images,)
-            
+
             # Handle encoding/decoding
             working_img = img_np.copy()
-            
+
             # Step 1: Decode input if it's encoded
             if self._is_encoded_colorspace(from_colorspace):
                 logger.debug(f"Decoding {from_colorspace}")
                 working_img = self._apply_gamma_decoding(working_img, from_colorspace)
-            
+
             # Step 2: Convert between colorspaces (linear to linear)
             if from_cs != to_cs and from_cs != "Raw" and to_cs != "Raw":
                 logger.debug(f"Converting colorspace: {from_cs} -> {to_cs}")
-                
+
                 # Handle special case where both map to same underlying space
                 if from_cs == to_cs:
                     logger.debug("Same underlying colorspace, skipping conversion")
@@ -295,7 +293,7 @@ class ColorspaceNode:
                     rgb_data, alpha_channel, original_shape = BatchProcessor.reshape_for_processing(
                         working_tensor, preserve_alpha=True
                     )
-                    
+
                     # Apply the colorspace conversion
                     try:
                         converted_rgb = colour.RGB_to_RGB(
@@ -323,18 +321,18 @@ class ColorspaceNode:
                             logger.error(f"All conversion attempts failed: {e2}")
                             # Return original image
                             return (images,)
-                    
+
                     # Use batch processing utilities to reshape back
                     working_tensor = BatchProcessor.reshape_from_processing(
                         converted_rgb, alpha_channel, original_shape, images.device
                     )
                     working_img = working_tensor.cpu().numpy()
-            
+
             # Step 3: Encode output if needed
             if self._is_encoded_colorspace(to_colorspace):
                 logger.debug(f"Encoding to {to_colorspace}")
                 working_img = self._apply_gamma_encoding(working_img, to_colorspace)
-            
+
             # Handle clipping based on colorspace
             # For HDR colorspaces like ACES, we don't want to clip to 0-1
             is_hdr_colorspace = any(hdr_space in to_colorspace for hdr_space in ["ACES", "Raw", "Linear"])
@@ -361,14 +359,14 @@ class ColorspaceNode:
                 if np.any(working_img > 1.0):
                     max_val = np.max(working_img)
                     logger.debug(f"ACES HDR values detected: max={max_val:.6f}")
-            
+
             # Convert back to torch tensor
             result_tensor = torch.from_numpy(working_img).to(images.device)
-            
+
             logger.debug(f"Output range: min={result_tensor.min().item():.6f}, max={result_tensor.max().item():.6f}")
-            
+
             return (result_tensor,)
-            
+
         except Exception as e:
             logger.error(f"Conversion failed: {e}")
             import traceback
