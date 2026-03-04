@@ -566,6 +566,7 @@ class ExrProcessor:
             
             layers_dict = {}
             cryptomatte_dict = {}
+            channel_groups = {}
             all_channel_names = []
             rgb_tensor = None
             alpha_tensor = None
@@ -704,6 +705,9 @@ class ExrProcessor:
                                 is_cryptomatte, layers_dict, cryptomatte_dict
                             )
             
+            if rgb_tensor is None:
+                raise ValueError(f"Failed to read default image data from {image_path}")
+
             ExrProcessor.process_layer_groups(
                 channel_groups, cryptomatte_dict, metadata
             )
