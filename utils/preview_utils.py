@@ -99,7 +99,7 @@ class PreviewGenerator:
             sequence_info = " (sequence)" if is_sequence else ""
             size_info = f"{pil_image.width}x{pil_image.height}"
             full_size_info = " (full resolution)" if self.enable_full_size else " (thumbnail)"
-            logger.info(f"Generated preview{sequence_info}{full_size_info} {size_info}: {preview_filename}")
+            logger.debug(f"Generated preview{sequence_info}{full_size_info} {size_info}: {preview_filename}")
             
             return preview_data
             

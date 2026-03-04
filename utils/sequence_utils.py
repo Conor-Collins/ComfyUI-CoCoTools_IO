@@ -132,7 +132,7 @@ class SequenceHandler:
                 if len(valid_files) < 3:
                     debug_log(logger, "debug", f"No match", f"File: {file_path}\\nPattern: {pattern_for_regex}")
 
-        debug_log(logger, "info", f"Found {len(valid_files)} sequence files",
+        debug_log(logger, "debug", f"Found {len(valid_files)} sequence files",
                  f"Pattern: {pattern_path}, Found {len(valid_files)} files matching pattern")
 
         return sorted(valid_files)
@@ -197,7 +197,7 @@ class SequenceHandler:
             current_frame += frame_step
         
         expected_count = len(range(start_frame, end_frame + 1, frame_step))
-        debug_log(logger, "info", f"Selected {len([f for f in selected_frames if f is not None])} of {expected_count} frames", 
+        debug_log(logger, "debug", f"Selected {len([f for f in selected_frames if f is not None])} of {expected_count} frames",
                  f"Selected {len([f for f in selected_frames if f is not None])} frames from {len(available_frames)} available " +
                  f"(start={start_frame}, end={end_frame}, step={frame_step})")
         

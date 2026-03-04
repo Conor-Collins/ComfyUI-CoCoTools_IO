@@ -247,12 +247,12 @@ class ColorspaceNode:
         
         # If source and target are the same, return original
         if from_colorspace == to_colorspace:
-            logger.info("Source and target colorspaces are the same")
+            logger.debug("Source and target colorspaces are the same")
             return (images,)
         
         # Convert to numpy
         img_np = images.cpu().numpy()
-        logger.info(f"Input range: min={img_np.min():.6f}, max={img_np.max():.6f}")
+        logger.debug(f"Input range: min={img_np.min():.6f}, max={img_np.max():.6f}")
         
         # Handle problematic values
         if np.isnan(img_np).any() or np.isinf(img_np).any():
@@ -263,7 +263,7 @@ class ColorspaceNode:
         try:
             # Handle special cases first
             if from_colorspace == "Raw" or to_colorspace == "Raw":
-                logger.info("Raw colorspace detected, returning input unchanged")
+                logger.debug("Raw colorspace detected, returning input unchanged")
                 return (images,)
             
             # Get the colour-science colorspace names
@@ -279,16 +279,16 @@ class ColorspaceNode:
             
             # Step 1: Decode input if it's encoded
             if self._is_encoded_colorspace(from_colorspace):
-                logger.info(f"Decoding {from_colorspace}")
+                logger.debug(f"Decoding {from_colorspace}")
                 working_img = self._apply_gamma_decoding(working_img, from_colorspace)
             
             # Step 2: Convert between colorspaces (linear to linear)
             if from_cs != to_cs and from_cs != "Raw" and to_cs != "Raw":
-                logger.info(f"Converting colorspace: {from_cs} -> {to_cs}")
+                logger.debug(f"Converting colorspace: {from_cs} -> {to_cs}")
                 
                 # Handle special case where both map to same underlying space
                 if from_cs == to_cs:
-                    logger.info("Same underlying colorspace, skipping conversion")
+                    logger.debug("Same underlying colorspace, skipping conversion")
                 else:
                     # Use batch processing utilities for reshaping
                     working_tensor = torch.from_numpy(working_img)
@@ -305,7 +305,7 @@ class ColorspaceNode:
                             apply_cctf_decoding=False,  # We handle encoding separately
                             apply_cctf_encoding=False
                         )
-                        logger.info("Colorspace conversion successful")
+                        logger.debug("Colorspace conversion successful")
                     except Exception as e:
                         logger.error(f"Colour-science conversion failed: {e}")
                         # Try with chromatic adaptation
@@ -318,7 +318,7 @@ class ColorspaceNode:
                                 apply_cctf_encoding=False,
                                 chromatic_adaptation_transform='CAT02'
                             )
-                            logger.info("Colorspace conversion with CAT02 successful")
+                            logger.debug("Colorspace conversion with CAT02 successful")
                         except Exception as e2:
                             logger.error(f"All conversion attempts failed: {e2}")
                             # Return original image
@@ -332,7 +332,7 @@ class ColorspaceNode:
             
             # Step 3: Encode output if needed
             if self._is_encoded_colorspace(to_colorspace):
-                logger.info(f"Encoding to {to_colorspace}")
+                logger.debug(f"Encoding to {to_colorspace}")
                 working_img = self._apply_gamma_encoding(working_img, to_colorspace)
             
             # Handle clipping based on colorspace
@@ -349,12 +349,12 @@ class ColorspaceNode:
                 # Log if we have values > 1.0 (common in HDR)
                 if np.any(working_img > 1.0):
                     max_val = np.max(working_img)
-                    logger.info(f"HDR values detected: max={max_val:.6f}")
+                    logger.debug(f"HDR values detected: max={max_val:.6f}")
             
             # Convert back to torch tensor
             result_tensor = torch.from_numpy(working_img).to(images.device)
             
-            logger.info(f"Output range: min={result_tensor.min().item():.6f}, max={result_tensor.max().item():.6f}")
+            logger.debug(f"Output range: min={result_tensor.min().item():.6f}, max={result_tensor.max().item():.6f}")
             
             return (result_tensor,)
             

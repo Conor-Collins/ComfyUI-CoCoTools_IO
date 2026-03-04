@@ -153,18 +153,16 @@ class LoadExrSequence:
             )
             
             frame_count = len(range(start_frame, end_frame + 1, frame_step))
-            debug_log(logger, "info", f"Loading EXR sequence: {frame_count} frames", 
+            debug_log(logger, "debug", f"Loading EXR sequence: {frame_count} frames",
                      f"Loading EXR sequence: {sequence_path} (start={start_frame}, end={end_frame}, step={frame_step})")
             
             # Find existing sequence files
             existing_sequence_files = SequenceHandler.find_sequence_files(sequence_path)
-            debug_log(logger, "info", f"Found {len(existing_sequence_files)} sequence files",
+            debug_log(logger, "debug", f"Found {len(existing_sequence_files)} sequence files",
                      f"SequenceHandler found {len(existing_sequence_files)} files for pattern: {sequence_path}")
             
             if not existing_sequence_files:
-                logger.error(f"No sequence files found for pattern: {sequence_path}")
-                logger.error(f"Pattern path: {sequence_path}")
-                logger.error(f"Expected frame range: {start_frame} to {end_frame} step {frame_step}")
+                logger.error(f"No sequence files found for pattern: {sequence_path} (frames {start_frame}-{end_frame} step {frame_step})")
                 raise FileNotFoundError(f"No sequence frames found for pattern: {sequence_path}")
             
             # Extract frame numbers and select frames
@@ -174,15 +172,10 @@ class LoadExrSequence:
             )
             
             if not selected_frames:
-                logger.error(f"No frames selected from sequence")
-                logger.error(f"Available frames: {len(existing_sequence_files)}")
-                logger.error(f"Frame range requested: {start_frame} to {end_frame} step {frame_step}")
-                if frame_info:
-                    available_frame_numbers = [frame_num for frame_num, _ in frame_info]
-                    logger.error(f"Available frame numbers: {sorted(available_frame_numbers)}")
+                logger.error(f"No frames selected for range {start_frame}-{end_frame} step {frame_step} ({len(existing_sequence_files)} files available)")
                 raise ValueError(f"No frames selected from sequence for range {start_frame}-{end_frame} step {frame_step}")
             
-            debug_log(logger, "info", f"Selected {len(selected_frames)} frames for loading", 
+            debug_log(logger, "debug", f"Selected {len(selected_frames)} frames for loading",
                      f"Loading {len(selected_frames)} frames from sequence")
             
             # Find first valid frame to establish structure
@@ -201,8 +194,7 @@ class LoadExrSequence:
             try:
                 first_frame_result = ExrProcessor.process_exr_data(first_valid_frame, normalize, node_id, layer_data)
             except Exception as e:
-                logger.error(f"Failed to load first frame: {first_valid_frame}")
-                logger.error(f"Error: {str(e)}")
+                logger.error(f"Failed to load first frame {first_valid_frame}: {e}")
                 raise
             
             # Handle result format (dict if preview generated, list if not)
@@ -229,7 +221,7 @@ class LoadExrSequence:
                 # Skip the first valid frame (already loaded) and None paths
                 if i == first_frame_index or frame_path is None:
                     if frame_path is None:
-                        logger.warning(f"Skipping missing frame {i+1}/{len(selected_frames)}: frame not found in sequence")
+                        logger.debug(f"Missing frame {i+1}/{len(selected_frames)}, using white placeholder")
                         # Create white placeholder frames for missing frames
                         white_rgb = torch.ones_like(first_frame_data[0])
                         white_alpha = torch.ones_like(first_frame_data[1])
@@ -267,18 +259,17 @@ class LoadExrSequence:
                         if layer_name in batch_layers_dict:
                             batch_layers_dict[layer_name].append(layer_tensor)
                         else:
-                            logger.warning(f"Layer '{layer_name}' not found in first frame, skipping for this frame")
-                    
+                            logger.debug(f"Layer '{layer_name}' not in first frame, skipping")
+
                     # Add cryptomatte to batch
                     for crypto_name, crypto_tensor in frame_data[2].items():
                         if crypto_name in batch_cryptomatte_dict:
                             batch_cryptomatte_dict[crypto_name].append(crypto_tensor)
                         else:
-                            logger.warning(f"Cryptomatte '{crypto_name}' not found in first frame, skipping for this frame")
+                            logger.debug(f"Cryptomatte '{crypto_name}' not in first frame, skipping")
                             
                 except Exception as e:
-                    logger.error(f"Failed to load frame {i+1}/{len(selected_frames)}: {frame_path}")
-                    logger.error(f"Error: {str(e)}")
+                    logger.warning(f"Failed to load frame {i+1}/{len(selected_frames)}: {e}")
                     # Create white placeholder frame for failed loads
                     white_rgb = torch.ones_like(first_frame_data[0])
                     white_alpha = torch.ones_like(first_frame_data[1])

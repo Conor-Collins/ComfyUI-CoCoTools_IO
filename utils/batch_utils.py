@@ -187,11 +187,11 @@ class BatchProcessor:
         """
         if len(tensor.shape) == 4:
             batch_size = tensor.shape[0]
-            debug_log(logger, "info", f"{operation}: {batch_size} images, {format_tensor_info(tensor.shape, tensor.dtype, tensor_name)}",
+            debug_log(logger, "debug", f"{operation}: {batch_size} images, {format_tensor_info(tensor.shape, tensor.dtype, tensor_name)}",
                      f"{operation} - Batch processing {batch_size} images: {tensor_name} {format_tensor_info(tensor.shape, tensor.dtype)} " +
                      f"range=[{tensor.min().item():.6f}, {tensor.max().item():.6f}]")
         else:
-            debug_log(logger, "info", f"{operation}: {format_tensor_info(tensor.shape, tensor.dtype, tensor_name)}",
+            debug_log(logger, "debug", f"{operation}: {format_tensor_info(tensor.shape, tensor.dtype, tensor_name)}",
                      f"{operation} - Processing {tensor_name}: {format_tensor_info(tensor.shape, tensor.dtype)} " +
                      f"range=[{tensor.min().item():.6f}, {tensor.max().item():.6f}]")
 

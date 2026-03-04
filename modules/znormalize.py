@@ -114,7 +114,7 @@ class ZNormalizeNode:
             
             # Log input value range for debugging
             input_min, input_max = normalized.min().item(), normalized.max().item()
-            debug_log(logger, "info", f"Input range: [{input_min:.6f}, {input_max:.6f}]",
+            debug_log(logger, "debug", f"Input range: [{input_min:.6f}, {input_max:.6f}]",
                      f"Input depth values range from {input_min:.6f} to {input_max:.6f}")
             
             # Normalize depth values - this operation is automatically batch-aware
@@ -126,18 +126,16 @@ class ZNormalizeNode:
             
             # Log normalized value range
             norm_min, norm_max = normalized.min().item(), normalized.max().item()
-            debug_log(logger, "info", f"Normalized to: [{norm_min:.6f}, {norm_max:.6f}]",
+            debug_log(logger, "debug", f"Normalized to: [{norm_min:.6f}, {norm_max:.6f}]",
                      f"After normalization, values range from {norm_min:.6f} to {norm_max:.6f}")
             
             # Handle single channel depth maps by replicating to RGB
             if normalized.shape[-1] == 1:
-                debug_log(logger, "info", "Converting single channel to RGB",
+                debug_log(logger, "debug", "Converting single channel to RGB",
                          "Single channel depth detected, replicating to RGB channels")
                 normalized = normalized.repeat(1, 1, 1, 3)
-                debug_log(logger, "info", f"RGB depth: {format_tensor_info(normalized.shape, normalized.dtype)}",
-                         f"Converted to RGB: {format_tensor_info(normalized.shape, normalized.dtype)}")
             
-            debug_log(logger, "info", f"Depth normalization complete: {format_tensor_info(normalized.shape, normalized.dtype)}",
+            debug_log(logger, "debug", f"Depth normalization complete: {format_tensor_info(normalized.shape, normalized.dtype)}",
                      f"Successfully normalized {batch_size} depth images with final shape {normalized.shape}")
                 
             return (normalized,)

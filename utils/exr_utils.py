@@ -338,7 +338,7 @@ class ExrProcessor:
             
             if group_name == 'Z':
                 is_mask_type = True
-                debug_log(logger, "info", "Processing Z channel as mask", 
+                debug_log(logger, "debug", "Processing Z channel as mask",
                          f"Processing Z channel as mask: shape={channel_array.shape}")
             
             if is_mask_type:
@@ -349,10 +349,9 @@ class ExrProcessor:
                     if mask_range > 0:
                         mask_tensor = (mask_tensor - mask_tensor.min()) / mask_range
                 
-                debug_log(logger, "info", f"Created mask: {format_tensor_info(mask_tensor.shape, mask_tensor.dtype, group_name)}", 
+                debug_log(logger, "debug", f"Created mask: {group_name} {mask_tensor.shape}",
                          f"Created mask tensor for {group_name}: shape={mask_tensor.shape}, " +
-                         f"min={mask_tensor.min().item():.6f}, max={mask_tensor.max().item():.6f}, " +
-                         f"mean={mask_tensor.mean().item():.6f}")
+                         f"min={mask_tensor.min().item():.6f}, max={mask_tensor.max().item():.6f}")
                 
                 layers_dict[group_name] = mask_tensor
             else:
@@ -366,10 +365,9 @@ class ExrProcessor:
                     if channel_range > 0:
                         channel_tensor = (channel_tensor - channel_tensor.min()) / channel_range
                 
-                debug_log(logger, "info", f"Created RGB: {format_tensor_info(channel_tensor.shape, channel_tensor.dtype, group_name)}", 
+                debug_log(logger, "debug", f"Created RGB: {group_name} {channel_tensor.shape}",
                          f"Created RGB tensor for {group_name}: shape={channel_tensor.shape}, " +
-                         f"min={channel_tensor.min().item():.6f}, max={channel_tensor.max().item():.6f}, " +
-                         f"mean={channel_tensor.mean().item():.6f}")
+                         f"min={channel_tensor.min().item():.6f}, max={channel_tensor.max().item():.6f}")
                 
                 layers_dict[group_name] = channel_tensor
 
@@ -738,7 +736,7 @@ class ExrProcessor:
             debug_log(logger, "info", f"Loaded {len(layers_dict)} layers: {format_layer_names(list(layers_dict.keys()))}", 
                      f"Available EXR layers: {list(layers_dict.keys())}")
             if cryptomatte_dict:
-                debug_log(logger, "info", f"Loaded {len(cryptomatte_dict)} cryptomatte layers", 
+                debug_log(logger, "debug", f"Loaded {len(cryptomatte_dict)} cryptomatte layers",
                          f"Available cryptomatte layers: {list(cryptomatte_dict.keys())}")
             
             layer_names = all_channel_names

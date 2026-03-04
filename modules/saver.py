@@ -306,13 +306,9 @@ class SaverNode:
             # Determine if this is sequence mode and validate pattern
             is_sequence_mode = save_mode == "sequence" or SequenceHandler.detect_sequence_pattern(filename)
             
-            debug_log(logger, "info", f"Saving {len(images)} images in {save_mode} mode", 
+            debug_log(logger, "debug", f"Saving {len(images)} images in {save_mode} mode",
                      f"Save mode: {save_mode}, Is sequence: {is_sequence_mode}, File type: {file_type}")
             bit_depth = self.validate_bit_depth(file_type, bit_depth)
-            
-            # Log save operation
-            debug_log(logger, "info", f"Saving {len(images)} image(s) as {file_type.upper()}", 
-                     f"Saving {len(images)} image(s) as {file_type.upper()} {bit_depth}-bit to {filename}")
             
             # Build base path
             if file_path:

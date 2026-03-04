@@ -87,7 +87,7 @@ class HistogramNode(io.ComfyNode):
 
             result["stats"] = stats
 
-            debug_log(logger, "info",
+            debug_log(logger, "debug",
                       f"Histogram computed: {width}x{height}, {channels}ch, range=[{data_min:.4f}, {data_max:.4f}]")
 
             return io.NodeOutput(ui={"histogram_data": [result]})

@@ -117,7 +117,7 @@ class VectorscopeNode(io.ComfyNode):
                 },
             }
 
-            debug_log(logger, "info",
+            debug_log(logger, "debug",
                       f"Vectorscope computed: {width}x{height}, {color_model}, {len(x_coords)} points")
 
             return io.NodeOutput(ui={"vectorscope_data": [result]})
