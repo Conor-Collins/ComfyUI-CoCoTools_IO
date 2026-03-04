@@ -136,8 +136,8 @@ class ColorspaceNode:
             # Apply sRGB EOTF (gamma curve)
             return colour.models.eotf_sRGB(rgb)
         elif colorspace == "Rec.709" or "Rec.709" in colorspace and "Linear" not in colorspace:
-            # Rec.709 uses the same EOTF as sRGB
-            return colour.models.eotf_sRGB(rgb)
+            # BT.709 has its own OETF distinct from sRGB EOTF
+            return colour.models.oetf_inverse_BT709(rgb)
         elif colorspace == "Display P3" or "Display P3" in colorspace and "Linear" not in colorspace:
             # Display P3 uses the same EOTF as sRGB
             return colour.models.eotf_sRGB(rgb)
@@ -173,8 +173,8 @@ class ColorspaceNode:
             # Apply inverse sRGB EOTF
             return colour.models.eotf_inverse_sRGB(rgb)
         elif colorspace == "Rec.709" or "Rec.709" in colorspace and "Linear" not in colorspace:
-            # Rec.709 uses the same EOTF as sRGB
-            return colour.models.eotf_inverse_sRGB(rgb)
+            # BT.709 has its own OETF distinct from sRGB EOTF
+            return colour.models.oetf_BT709(rgb)
         elif colorspace == "Display P3" or "Display P3" in colorspace and "Linear" not in colorspace:
             # Display P3 uses the same EOTF as sRGB
             return colour.models.eotf_inverse_sRGB(rgb)
