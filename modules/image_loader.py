@@ -69,10 +69,15 @@ class ImageLoader:
                 if has_alpha:
                     alpha_tensor = self.pil2tensor(img.split()[-1], 8).unsqueeze(0)
 
-                # Convert to RGB and create tensor
-                # convert("RGB") always produces 8-bit pixel data
-                rgb_image = img.convert("RGB")
-                rgb_tensor = self.pil2tensor(rgb_image, 8)
+                # High bit depth grayscale modes — bypass PIL's destructive convert("RGB")
+                if bit_depth > 8 and original_mode in ("I;16", "I;16B", "I;16L", "I", "F"):
+                    image_np = np.array(img)
+                    if image_np.ndim == 2:
+                        image_np = np.stack([image_np, image_np, image_np], axis=-1)
+                    rgb_tensor = self.pil2tensor_numpy(image_np, bit_depth)
+                else:
+                    rgb_image = img.convert("RGB")
+                    rgb_tensor = self.pil2tensor(rgb_image, bit_depth)
 
                 # Default opaque alpha mask matching MASK format [B,H,W]
                 if not has_alpha:
@@ -146,6 +151,21 @@ class ImageLoader:
             image_tensor = torch.from_numpy(image_np.astype(np.float32) / 255.0)
 
         # Add a batch dimension if not present
+        if len(image_tensor.shape) == 3:
+            image_tensor = image_tensor.unsqueeze(0)
+
+        return image_tensor
+
+    @staticmethod
+    def pil2tensor_numpy(image_np: np.ndarray, bit_depth: int) -> torch.Tensor:
+        """Convert a numpy array to a PyTorch tensor, scaled to 0-1 range based on bit depth."""
+        if bit_depth == 16:
+            image_tensor = torch.from_numpy(image_np.astype(np.float32) / 65535.0)
+        elif bit_depth == 32:
+            image_tensor = torch.from_numpy(image_np.astype(np.float32))
+        else:
+            image_tensor = torch.from_numpy(image_np.astype(np.float32) / 255.0)
+
         if len(image_tensor.shape) == 3:
             image_tensor = image_tensor.unsqueeze(0)
 
