@@ -101,7 +101,9 @@ class ImageLoader:
         """
         mode_to_bit_depth = {
             "1": 1, "L": 8, "P": 8, "RGB": 8, "RGBA": 8,
-            "I;16": 16, "I": 32, "F": 32
+            "LA": 8, "PA": 8,
+            "I;16": 16, "I;16B": 16, "I;16L": 16,
+            "I": 32, "F": 32
         }
 
         if image is None:
