@@ -86,7 +86,7 @@ class ImageLoader:
                 # Apply min-max range normalization if requested
                 if normalize:
                     rgb_tensor = self.normalize_image(rgb_tensor)
-                    alpha_tensor = self.normalize_image(alpha_tensor)
+                    alpha_tensor = alpha_tensor.clamp(0, 1)
 
                 # Prepare metadata
                 metadata = {
@@ -164,7 +164,12 @@ class ImageLoader:
         if bit_depth == 16:
             image_tensor = torch.from_numpy(image_np.astype(np.float32) / 65535.0)
         elif bit_depth == 32:
-            image_tensor = torch.from_numpy(image_np.astype(np.float32))
+            # PIL "I" mode stores int32 values; scale by dtype max to get 0-1 range
+            if np.issubdtype(image_np.dtype, np.integer):
+                max_val = np.iinfo(image_np.dtype).max
+                image_tensor = torch.from_numpy(image_np.astype(np.float32) / max_val)
+            else:
+                image_tensor = torch.from_numpy(image_np.astype(np.float32))
         else:
             image_tensor = torch.from_numpy(image_np.astype(np.float32) / 255.0)
 
