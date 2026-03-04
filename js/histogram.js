@@ -82,6 +82,7 @@ function drawHistogram(canvas, data, mode, useLog) {
         if (!counts) continue;
 
         const binCount = counts.length;
+        if (binCount === 0) continue;
         const binWidth = w / binCount;
 
         ctx.fillStyle = ch.solid ? ch.colors.solid : ch.colors.fill;
@@ -143,8 +144,11 @@ app.registerExtension({
             const statsTop = document.createElement("div");
             statsTop.style.cssText = "width:100%;font:10px monospace;color:#ccc;display:flex;justify-content:space-between;padding:0 4px;";
             const rangeSpan = createStatsSpan("hist-range", "Range: --");
+            const bitDepthSpan = createStatsSpan("hist-bitdepth", "");
+            bitDepthSpan.style.color = "#aaa";
             const clipSpan = createStatsSpan("hist-clip", "Clip: --");
             statsTop.appendChild(rangeSpan);
+            statsTop.appendChild(bitDepthSpan);
             statsTop.appendChild(clipSpan);
             container.appendChild(statsTop);
 
@@ -203,6 +207,7 @@ app.registerExtension({
             // Store references
             this._histCanvas = canvas;
             this._histRangeSpan = rangeSpan;
+            this._histBitDepthSpan = bitDepthSpan;
             this._histClipSpan = clipSpan;
             this._histStatsLine1 = statsLine1;
             this._histStatsLine2 = statsLine2;
@@ -248,6 +253,7 @@ app.registerExtension({
                 const data = this._histogramData;
                 if (!data || !data.stats) {
                     this._histRangeSpan.textContent = "Range: --";
+                    this._histBitDepthSpan.textContent = "";
                     this._histClipSpan.textContent = "Clip: --";
                     this._histStatsLine1.textContent = "Mean: -- StdDev: -- Median: --";
                     this._histStatsLine2.textContent = "P5: -- P95: --";
@@ -258,6 +264,10 @@ app.registerExtension({
                 const range = info.data_range || [0, 1];
                 this._histRangeSpan.textContent =
                     "Range: [" + range[0].toFixed(4) + " - " + range[1].toFixed(4) + "]  " + (info.width || "?") + "x" + (info.height || "?");
+
+                // Bit depth readout
+                const bd = info.bit_depth;
+                this._histBitDepthSpan.textContent = bd ? (bd === 32 ? "32-bit float" : bd + "-bit") : "";
 
                 // Get stats for current mode
                 const mode = this._histogramMode;

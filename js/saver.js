@@ -47,8 +47,11 @@ function addFormatWidgets(nodeType, nodeData) {
                     if (Array.isArray(type)) {
                         type = "COMBO";
                     }
+                    if (!app.widgets[type]) { console.warn("Unknown widget type:", type); continue; }
+                    const widgetsBefore = this.widgets.length;
                     app.widgets[type](this, wDef[0], wDef.slice(1), app);
-                    let w = this.widgets.pop();
+                    let w = this.widgets.length > widgetsBefore ? this.widgets.pop() : null;
+                    if (!w) continue;
                     if (['INT', 'FLOAT'].includes(type)) {
                         if (wDef.length > 2 && wDef[2]) {
                             Object.assign(w.options, wDef[2]);

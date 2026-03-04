@@ -174,6 +174,8 @@ function drawVectorscope(canvas, data, showGuides, showSkin) {
 
     const colorModel = data.color_model;
 
+    if (!data.x_coords || !data.y_coords) return;
+
     if (showGuides) {
         if (colorModel === "YCbCr") {
             drawYCbCrTargets(ctx);

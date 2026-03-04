@@ -53,10 +53,9 @@ app.registerExtension({
                 
                 console.log(`Connection made to ${inputName} from node ${sourceNode.title || sourceNode.type}`);
                 
-                // Store connection in a structured way
+                // Store only the node ID to avoid stale references
                 this.connectedNodes[inputName] = {
                     nodeId: sourceNodeId,
-                    node: sourceNode,
                     outputIndex: link_info.origin_slot
                 };
                 
@@ -105,12 +104,15 @@ app.registerExtension({
         nodeType.prototype.updateLayerOptions = function() {
             const inputName = isCryptomatte ? "cryptomatte" : "layers";
             const connectionInfo = this.connectedNodes[inputName];
-            
-            if (!connectionInfo || !connectionInfo.node) {
+
+            if (!connectionInfo || !connectionInfo.nodeId) {
                 return;
             }
-            
-            const sourceNode = connectionInfo.node;
+
+            const sourceNode = app.graph.getNodeById(connectionInfo.nodeId);
+            if (!sourceNode) {
+                return;
+            }
             console.log(`Finding available layers from ${sourceNode.title || sourceNode.type}`);
             
             // Check if the source is a LoadExr node
