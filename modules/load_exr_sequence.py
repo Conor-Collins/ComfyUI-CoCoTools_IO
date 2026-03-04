@@ -203,42 +203,52 @@ class LoadExrSequence:
             else:
                 first_frame_data = first_frame_result
             
-            # Initialize batch tensors with first frame
-            batch_rgb_list = [first_frame_data[0]]
-            batch_alpha_list = [first_frame_data[1]]
+            # Initialize empty batch lists to preserve correct ordering
+            batch_rgb_list = []
+            batch_alpha_list = []
             batch_layers_dict = {}
             batch_cryptomatte_dict = {}
-            
-            # Initialize layer dictionaries
-            for layer_name, layer_tensor in first_frame_data[3].items():
-                batch_layers_dict[layer_name] = [layer_tensor]
-            
-            for crypto_name, crypto_tensor in first_frame_data[2].items():
-                batch_cryptomatte_dict[crypto_name] = [crypto_tensor]
-            
-            # Load remaining frames (skip the first valid frame we already loaded)
+
+            # Initialize layer dictionaries with empty lists using first frame's structure
+            for layer_name in first_frame_data[3]:
+                batch_layers_dict[layer_name] = []
+
+            for crypto_name in first_frame_data[2]:
+                batch_cryptomatte_dict[crypto_name] = []
+
+            # Load all frames in order, using first_frame_data for the already-loaded frame
             for i, frame_path in enumerate(selected_frames):
-                # Skip the first valid frame (already loaded) and None paths
-                if i == first_frame_index or frame_path is None:
-                    if frame_path is None:
-                        logger.debug(f"Missing frame {i+1}/{len(selected_frames)}, using white placeholder")
-                        # Create white placeholder frames for missing frames
-                        white_rgb = torch.ones_like(first_frame_data[0])
-                        white_alpha = torch.ones_like(first_frame_data[1])
-                        batch_rgb_list.append(white_rgb)
-                        batch_alpha_list.append(white_alpha)
-                        
-                        # Create white placeholders for layers
-                        for layer_name, layer_tensor in first_frame_data[3].items():
-                            if layer_name in batch_layers_dict:
-                                white_layer = torch.ones_like(layer_tensor)
-                                batch_layers_dict[layer_name].append(white_layer)
-                        
-                        # Create white placeholders for cryptomatte
-                        for crypto_name, crypto_tensor in first_frame_data[2].items():
-                            if crypto_name in batch_cryptomatte_dict:
-                                white_crypto = torch.ones_like(crypto_tensor)
-                                batch_cryptomatte_dict[crypto_name].append(white_crypto)
+                if frame_path is None:
+                    logger.debug(f"Missing frame {i+1}/{len(selected_frames)}, using white placeholder")
+                    # Create white placeholder frames for missing frames
+                    white_rgb = torch.ones_like(first_frame_data[0])
+                    white_alpha = torch.ones_like(first_frame_data[1])
+                    batch_rgb_list.append(white_rgb)
+                    batch_alpha_list.append(white_alpha)
+
+                    # Create white placeholders for layers
+                    for layer_name in batch_layers_dict:
+                        white_layer = torch.ones_like(first_frame_data[3][layer_name])
+                        batch_layers_dict[layer_name].append(white_layer)
+
+                    # Create white placeholders for cryptomatte
+                    for crypto_name in batch_cryptomatte_dict:
+                        white_crypto = torch.ones_like(first_frame_data[2][crypto_name])
+                        batch_cryptomatte_dict[crypto_name].append(white_crypto)
+                    continue
+
+                # Use already-loaded data for the first valid frame
+                if i == first_frame_index:
+                    batch_rgb_list.append(first_frame_data[0])
+                    batch_alpha_list.append(first_frame_data[1])
+
+                    for layer_name, layer_tensor in first_frame_data[3].items():
+                        if layer_name in batch_layers_dict:
+                            batch_layers_dict[layer_name].append(layer_tensor)
+
+                    for crypto_name, crypto_tensor in first_frame_data[2].items():
+                        if crypto_name in batch_cryptomatte_dict:
+                            batch_cryptomatte_dict[crypto_name].append(crypto_tensor)
                     continue
                     
                 try:
