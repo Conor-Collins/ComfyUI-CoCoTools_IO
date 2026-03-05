@@ -1,4 +1,6 @@
+import os
 import torch
+import numpy as np
 import logging
 
 # Import centralized logging setup
@@ -254,6 +256,9 @@ class CryptomatteLayer(LoadExrLayerByName):
                 })
             },
             "optional": {
+                "preview_image": ("IMAGE", {
+                    "description": "Connect the beauty/rendered image here to enable click-to-matte selection."
+                }),
                 "x_coord": ("INT", {
                     "default": -1,
                     "min": -1,
@@ -275,170 +280,212 @@ class CryptomatteLayer(LoadExrLayerByName):
     RETURN_NAMES = ("image", "mask")
     FUNCTION = "process_cryptomatte"
     CATEGORY = "Image/EXR"
+    OUTPUT_NODE = True
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")  # Always execute
 
     def process_cryptomatte(self, cryptomatte: dict[str, torch.Tensor], layer_name: str,
-                            x_coord: int = -1, y_coord: int = -1) -> tuple[torch.Tensor, torch.Tensor]:
+                            preview_image=None, x_coord: int = -1, y_coord: int = -1):
         """
         Extract a specific cryptomatte layer, optionally generating a matte mask
         from the object ID at a clicked pixel position.
-
-        Args:
-            cryptomatte: Dictionary of cryptomatte layer names to tensors
-            layer_name: Name of the cryptomatte layer to extract
-            x_coord: X pixel coordinate for click-to-matte, -1 to disable
-            y_coord: Y pixel coordinate for click-to-matte, -1 to disable
-
-        Returns:
-            Tuple containing (image, mask) tensors
         """
-        # Check if we have any layers at all
-        if not cryptomatte or len(cryptomatte) == 0:
-            debug_log(logger, "warning", "No cryptomatte layers available", "No cryptomatte layers available in the input")
-            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
+        empty_result = {"result": (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1))), "ui": {}}
 
-        # Update the class variable with available cryptomatte layer names
+        if not cryptomatte or len(cryptomatte) == 0:
+            debug_log(logger, "warning", "No cryptomatte layers available")
+            return empty_result
+
         self.__class__.available_layers = ["none", *sorted(cryptomatte.keys())]
 
-        # If the layer doesn't exist, try to find a close match
-        if layer_name not in cryptomatte and layer_name != "none":
-            original_name = layer_name
-            # Try to find an exact match ignoring case
-            case_insensitive_matches = [l for l in cryptomatte if l.lower() == layer_name.lower()]
-            if case_insensitive_matches:
-                layer_name = case_insensitive_matches[0]
-                debug_log(logger, "debug", "Found cryptomatte with different case",
-                         f"Cryptomatte layer name '{original_name}' found with different case: '{layer_name}'")
-            else:
-                # Try to find a partial match
-                matches = [l for l in cryptomatte if layer_name.lower() in l.lower()]
-                if matches:
-                    # Sort matches by length to find the closest match
-                    matches.sort(key=len)
-                    layer_name = matches[0]
-                    debug_log(logger, "debug", "Using closest cryptomatte match",
-                             f"Cryptomatte layer name '{original_name}' not found exactly, using closest match: '{layer_name}'")
-                else:
-                    # Try to match hierarchical names (e.g., "CITY SCENE.CryptoAsset00" when user enters "CryptoAsset")
-                    hierarchical_matches = []
-                    for l in cryptomatte:
-                        if '.' in l:
-                            parts = l.split('.')
-                            # Check if any part matches the layer name
-                            if any(part.lower() == layer_name.lower() for part in parts):
-                                hierarchical_matches.append(l)
+        # Resolve layer name with fuzzy matching
+        layer_name = self._resolve_layer_name(cryptomatte, layer_name)
+        if not layer_name:
+            return empty_result
 
-                    if hierarchical_matches:
-                        layer_name = hierarchical_matches[0]
-                        debug_log(logger, "debug", "Found hierarchical cryptomatte match",
-                                 f"Found hierarchical cryptomatte layer match for '{original_name}': '{layer_name}'")
-                    else:
-                        debug_log(logger, "warning", "Cryptomatte layer not found",
-                                 f"Cryptomatte layer '{original_name}' not found and no close matches")
-                        # Use the first available layer as fallback
-                        if len(cryptomatte) > 0:
-                            layer_name = next(iter(cryptomatte.keys()))
-                            debug_log(logger, "debug", "Using first available cryptomatte",
-                                     f"Using first available cryptomatte layer: {layer_name}")
-                        else:
-                            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
-
-        # If no layer is specified or "none" is selected, return empty tensors
-        if not layer_name or layer_name == "none":
-            debug_log(logger, "warning", "No cryptomatte layer specified", "No cryptomatte layer specified, returning empty tensor")
-            return (torch.zeros((1, 1, 1, 3)), torch.zeros((1, 1, 1)))
-
-        # Get the cryptomatte layer tensor
         layer_tensor = cryptomatte[layer_name]
-        image_output = layer_tensor
 
-        # Generate click-to-matte mask when valid coordinates are provided
-        mask_output = self._generate_matte_mask(layer_tensor, x_coord, y_coord)
+        # Ensure image output is [1, H, W, 3] for IMAGE type compatibility
+        image_output = self._ensure_rgb_output(layer_tensor)
 
-        return (image_output, mask_output)
+        # Generate matte mask from click coordinates
+        mask_output, selected_pixels = self._generate_matte_mask(layer_tensor, x_coord, y_coord)
+
+        # Build UI data with preview image for click-to-matte JS widget
+        ui_data = self._build_preview_ui(preview_image, mask_output, selected_pixels)
+
+        return {"result": (image_output, mask_output), "ui": ui_data}
+
+    def _resolve_layer_name(self, cryptomatte, layer_name):
+        """Resolve a layer name against the cryptomatte dict with fuzzy matching."""
+        if not layer_name or layer_name == "none":
+            debug_log(logger, "warning", "No cryptomatte layer specified")
+            return None
+
+        if layer_name in cryptomatte:
+            return layer_name
+
+        original_name = layer_name
+
+        # Case-insensitive match
+        for key in cryptomatte:
+            if key.lower() == layer_name.lower():
+                debug_log(logger, "debug", f"Found cryptomatte '{key}' (case-insensitive)")
+                return key
+
+        # Partial match
+        matches = sorted([k for k in cryptomatte if layer_name.lower() in k.lower()], key=len)
+        if matches:
+            debug_log(logger, "debug", f"Using closest cryptomatte match: '{matches[0]}'")
+            return matches[0]
+
+        # Hierarchical match
+        for key in cryptomatte:
+            if '.' in key:
+                parts = key.split('.')
+                if any(part.lower() == layer_name.lower() for part in parts):
+                    debug_log(logger, "debug", f"Found hierarchical match: '{key}'")
+                    return key
+
+        # Fallback to first available
+        debug_log(logger, "warning", f"Cryptomatte layer '{original_name}' not found")
+        if cryptomatte:
+            first = next(iter(cryptomatte.keys()))
+            debug_log(logger, "debug", f"Using first available: '{first}'")
+            return first
+        return None
+
+    @staticmethod
+    def _ensure_rgb_output(layer_tensor):
+        """Ensure tensor is [1, H, W, 3] for IMAGE type output."""
+        if len(layer_tensor.shape) == 4:
+            if layer_tensor.shape[0] > 1:
+                layer_tensor = layer_tensor[0:1]
+            channels = layer_tensor.shape[3]
+            if channels == 3:
+                return layer_tensor
+            elif channels > 3:
+                return layer_tensor[:, :, :, :3]
+            else:
+                return layer_tensor[:, :, :, :1].repeat(1, 1, 1, 3)
+        elif len(layer_tensor.shape) == 3:
+            return layer_tensor[0:1].unsqueeze(3).repeat(1, 1, 1, 3)
+        return torch.zeros((1, 1, 1, 3))
 
     def _generate_matte_mask(self, layer_tensor, x_coord, y_coord):
         """
-        Generate a binary matte mask from a cryptomatte layer by sampling the
-        object ID hash at the given pixel coordinates and selecting all pixels
-        that share the same hash value.
-
-        Args:
-            layer_tensor: The cryptomatte layer tensor
-            x_coord: X pixel coordinate, -1 to disable
-            y_coord: Y pixel coordinate, -1 to disable
+        Generate a matte mask from a cryptomatte layer by sampling the object ID
+        hash at the given pixel and selecting all pixels with the same hash.
 
         Returns:
-            A mask tensor, either the generated matte or an empty mask
+            Tuple of (mask_tensor [1, H, W], selected_pixel_count)
         """
-        if x_coord < 0 or y_coord < 0:
-            # No click coordinates, return empty mask
-            if len(layer_tensor.shape) == 4:
-                return torch.zeros((layer_tensor.shape[0], layer_tensor.shape[1], layer_tensor.shape[2]))
-            elif len(layer_tensor.shape) == 3:
-                return torch.zeros_like(layer_tensor)
-            return torch.zeros((1, 1, 1))
-
-        # Determine tensor dimensions for coordinate clamping
+        # Get spatial dimensions
         if len(layer_tensor.shape) == 4:
-            # Shape [B, H, W, C]
-            height = layer_tensor.shape[1]
-            width = layer_tensor.shape[2]
+            height, width = layer_tensor.shape[1], layer_tensor.shape[2]
         elif len(layer_tensor.shape) == 3:
-            # Shape [B, H, W]
-            height = layer_tensor.shape[1]
-            width = layer_tensor.shape[2]
+            height, width = layer_tensor.shape[1], layer_tensor.shape[2]
         else:
-            debug_log(logger, "warning", "Unexpected cryptomatte tensor shape",
-                     f"Cannot generate matte mask for tensor shape {layer_tensor.shape}")
-            return torch.zeros((1, 1, 1))
+            return torch.zeros((1, 1, 1)), 0
 
-        # Clamp coordinates to valid range
+        if x_coord < 0 or y_coord < 0:
+            return torch.zeros((1, height, width)), 0
+
         x_clamped = min(max(x_coord, 0), width - 1)
         y_clamped = min(max(y_coord, 0), height - 1)
 
-        debug_log(logger, "debug", f"Click-to-matte at ({x_clamped}, {y_clamped})",
-                 f"Sampling cryptomatte hash at pixel ({x_clamped}, {y_clamped}) from tensor shape {layer_tensor.shape}")
+        debug_log(logger, "debug", f"Click-to-matte at ({x_clamped}, {y_clamped})")
 
-        # Sample the cryptomatte hash value at the clicked pixel
-        # Cryptomatte stores float32 object ID hashes; read from channel 0 (R)
-        if len(layer_tensor.shape) == 4:
-            hash_value = layer_tensor[0, y_clamped, x_clamped, 0].item()
-        else:
-            hash_value = layer_tensor[0, y_clamped, x_clamped].item()
-
-        debug_log(logger, "debug", f"Sampled hash value: {hash_value}",
-                 f"Cryptomatte hash at ({x_clamped}, {y_clamped}): {hash_value}")
-
-        # If the hash value is zero or very close to zero, no object is at this pixel
+        # Sample the cryptomatte hash at clicked pixel
+        # Search across all ranks (batch dim) and ID channels (even indices)
         epsilon = 1e-6
-        if abs(hash_value) < epsilon:
-            debug_log(logger, "debug", "No object at clicked position",
-                     f"Hash value {hash_value} is near zero, no object selected")
-            if len(layer_tensor.shape) == 4:
-                return torch.zeros((layer_tensor.shape[0], layer_tensor.shape[1], layer_tensor.shape[2]))
-            return torch.zeros((layer_tensor.shape[0], height, width))
+        hash_value = None
 
-        # Build binary mask: 1.0 where any channel matches the hash, 0.0 elsewhere
         if len(layer_tensor.shape) == 4:
-            # For multi-channel cryptomatte [B, H, W, C], check all channels
-            # Each pair of channels stores (ID hash, coverage) for different objects
-            # Match against all even-indexed channels (the ID channels)
+            num_ranks = layer_tensor.shape[0]
             num_channels = layer_tensor.shape[3]
-            match_mask = torch.zeros((layer_tensor.shape[0], height, width), dtype=torch.float32)
-            for ch in range(0, num_channels, 2):
-                channel_data = layer_tensor[:, :, :, ch]
-                channel_match = torch.abs(channel_data - hash_value) < epsilon
-                match_mask = torch.max(match_mask, channel_match.float())
+            for b in range(num_ranks):
+                for ch in range(0, num_channels, 2):
+                    val = layer_tensor[b, y_clamped, x_clamped, ch].item()
+                    if abs(val) > epsilon:
+                        hash_value = val
+                        break
+                if hash_value is not None:
+                    break
         else:
-            # Single channel [B, H, W]
-            match_mask = (torch.abs(layer_tensor - hash_value) < epsilon).float()
+            val = layer_tensor[0, y_clamped, x_clamped].item()
+            if abs(val) > epsilon:
+                hash_value = val
 
-        debug_log(logger, "debug",
-                 f"Matte mask generated, {match_mask.sum().item():.0f} pixels selected",
-                 f"Generated matte mask with {match_mask.sum().item():.0f} selected pixels out of {height * width}")
+        if hash_value is None:
+            debug_log(logger, "debug", "No object at clicked position")
+            return torch.zeros((1, height, width)), 0
 
-        return match_mask
+        debug_log(logger, "debug", f"Sampled hash: {hash_value}")
+
+        # Build mask: match hash across all ranks and ID channels
+        match_mask = torch.zeros((1, height, width), dtype=torch.float32)
+
+        if len(layer_tensor.shape) == 4:
+            num_ranks = layer_tensor.shape[0]
+            num_channels = layer_tensor.shape[3]
+            for b in range(num_ranks):
+                for ch in range(0, num_channels, 2):
+                    channel_data = layer_tensor[b:b+1, :, :, ch]
+                    channel_match = (torch.abs(channel_data - hash_value) < epsilon).float()
+                    match_mask = torch.max(match_mask, channel_match)
+        else:
+            match_mask = (torch.abs(layer_tensor[0:1] - hash_value) < epsilon).float()
+
+        selected = int(match_mask.sum().item())
+        debug_log(logger, "debug", f"Matte mask: {selected} pixels selected")
+
+        return match_mask, selected
+
+    def _build_preview_ui(self, preview_image, mask_output, selected_pixels):
+        """Save preview image as temp file and build UI data dict for JS."""
+        if preview_image is None:
+            return {}
+
+        try:
+            import folder_paths
+            from PIL import Image
+
+            frame = preview_image[0].cpu().numpy()
+            height, width = frame.shape[0], frame.shape[1]
+
+            # Convert to uint8 for preview
+            preview_np = (np.clip(frame, 0.0, 1.0) * 255).astype(np.uint8)
+
+            # Overlay zebra stripe pattern on selected matte pixels
+            if selected_pixels > 0 and mask_output is not None:
+                mask_np = mask_output[0].cpu().numpy()
+                if mask_np.shape[0] == height and mask_np.shape[1] == width:
+                    # Diagonal stripe pattern: (x + y) mod period < half_period
+                    stripe_period = 6
+                    yy, xx = np.mgrid[:height, :width]
+                    stripe = ((xx + yy) % stripe_period) < (stripe_period // 2)
+                    # Where mask is active: darken on dark stripes, lighten on light stripes
+                    active = mask_np > 0.5
+                    overlay = preview_np.astype(np.int16)
+                    overlay[active & stripe] = np.clip(overlay[active & stripe] + 40, 0, 255)
+                    overlay[active & ~stripe] = np.clip(overlay[active & ~stripe] - 40, 0, 255)
+                    preview_np = overlay.astype(np.uint8)
+
+            img = Image.fromarray(preview_np)
+            temp_dir = folder_paths.get_temp_directory()
+            filename = f"cryptomatte_preview_{id(self) % 100000:05d}.png"
+            filepath = os.path.join(temp_dir, filename)
+            img.save(filepath, compress_level=4)
+
+            return {
+                "preview_image": [{"filename": filename, "subfolder": "", "type": "temp"}],
+                "image_width": [width],
+                "image_height": [height],
+                "selected_pixels": [selected_pixels],
+            }
+        except Exception as e:
+            debug_log(logger, "warning", f"Preview save failed: {e}")
+            return {}
