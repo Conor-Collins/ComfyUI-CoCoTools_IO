@@ -9,6 +9,7 @@ from .modules.colorspace import ColorspaceNode
 from .modules.znormalize import ZNormalizeNode
 from .modules.histogram import HistogramNode
 from .modules.vectorscope import VectorscopeNode
+from .utils import server_routes  # noqa: F401 — registers /cocotools/browse API route
 
 # Initialize node mappings
 NODE_CLASS_MAPPINGS = {}
