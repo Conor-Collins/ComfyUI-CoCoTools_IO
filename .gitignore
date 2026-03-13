@@ -10,8 +10,5 @@ CLAUDE.md
 .claude
 
 backup/
-ref/
-testing/
-documentation/
-deprecated/
-image files/
+dev/
+

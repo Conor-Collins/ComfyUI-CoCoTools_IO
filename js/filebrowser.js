@@ -28,7 +28,7 @@ function clearChildren(el) {
     }
 }
 
-function openFileBrowser({ startPath = "", extensions = "", title = "Browse", mode = "file", onSelect }) {
+function openFileBrowser({ startPath = "", extensions = "", title = "Browse", mode = "file", onSelect, onClose }) {
     // Overlay
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;";
@@ -117,6 +117,7 @@ function openFileBrowser({ startPath = "", extensions = "", title = "Browse", mo
     function close() {
         document.body.removeChild(overlay);
         document.removeEventListener("keydown", onKey);
+        onClose?.();
     }
 
     function onKey(e) {
@@ -233,7 +234,45 @@ function detectSequencePattern(filePath) {
     return dir + "/" + prefix + hashes + ext;
 }
 
-// --- Browse button injection ---
+// --- Text helpers (adapted from VHS) ---
+
+function pathStem(path) {
+    const i = path.lastIndexOf("/");
+    if (i >= 0) return [path.slice(0, i + 1), path.slice(i + 1)];
+    const j = path.lastIndexOf("\\");
+    if (j >= 0) return [path.slice(0, j + 1), path.slice(j + 1)];
+    return ["", path];
+}
+
+function fitText(ctx, text, maxWidth) {
+    if (maxWidth <= 0) return ["", 0];
+    const full = ctx.measureText(text).width;
+    if (full <= maxWidth) return [text, full];
+    const cutoff = Math.max(0, (maxWidth / full * text.length | 0) - 2);
+    const shortened = text.slice(0, cutoff) + "\u2026";
+    return [shortened, ctx.measureText(shortened).width];
+}
+
+function fitPath(ctx, path, maxWidth) {
+    const full = ctx.measureText(path).width;
+    if (full <= maxWidth) return [path, full];
+    const len = (maxWidth / full * path.length | 0) - 1;
+    const filename = pathStem(path)[1];
+    if (filename.length > len - 2) return [filename.substr(0, len), ctx.measureText(filename.substr(0, len)).width];
+    const isAbs = path[0] === "/" || (path.length > 1 && path[1] === ":");
+    const partial = path.substr(path.length - (isAbs ? len - 2 : len - 1));
+    const cutoff = partial.indexOf("/");
+    const backCutoff = cutoff < 0 ? partial.indexOf("\\") : cutoff;
+    let displayPath;
+    if (backCutoff < 0) {
+        displayPath = path.substr(path.length - len);
+    } else {
+        displayPath = (isAbs ? "/\u2026" : "\u2026") + partial.substr(backCutoff);
+    }
+    return [displayPath, ctx.measureText(displayPath).width];
+}
+
+// --- Browse button injection (adapted from VHS VHSPATH pattern) ---
 
 const BROWSE_TARGETS = [
     { nodeClass: "ImageLoader", widget: "image_path", extensions: "png,jpg,jpeg,tiff,tif,webp,bmp,exr", mode: "file" },
@@ -242,55 +281,153 @@ const BROWSE_TARGETS = [
     { nodeClass: "SaverNode", widget: "file_path", extensions: "", mode: "directory" },
 ];
 
-function injectBrowseButton(node, targetWidget, extensions, mode, isSequence) {
-    // Find the target widget
-    const widget = node.widgets?.find(w => w.name === targetWidget);
-    if (!widget) return;
+const ICON_ZONE = 28;
 
-    // Create the browse button as a DOM widget
-    const btn = document.createElement("button");
-    btn.textContent = "\uD83D\uDCC2 Browse";
-    btn.title = mode === "directory" ? "Browse for folder" : "Browse for file";
-    btn.style.cssText = "background:#2a2a2a;border:1px solid #555;color:#ddd;font-family:monospace;font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer;width:100%;";
+function drawFolderIcon(ctx, cx, cy, size) {
+    const s = size * 0.4;
+    ctx.fillStyle = "#b0b0b0";
+    ctx.beginPath();
+    ctx.moveTo(cx - s, cy - s * 0.6);
+    ctx.lineTo(cx - s * 0.3, cy - s * 0.6);
+    ctx.lineTo(cx - s * 0.1, cy - s * 0.95);
+    ctx.lineTo(cx - s, cy - s * 0.95);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(cx - s, cy - s * 0.6, s * 2, s * 1.4, 1.5);
+    ctx.fill();
+}
 
-    btn.addEventListener("mouseenter", () => { btn.style.background = "#3a3a3a"; });
-    btn.addEventListener("mouseleave", () => { btn.style.background = "#2a2a2a"; });
+// Custom draw: renders the widget background, label, path value, and folder icon
+// Adapted from VHS VHSPATH draw + LiteGraph drawNodeWidgets default
+function pathWidgetDraw(ctx, node, widget_width, y, H) {
+    const show_text = app.canvas.ds.scale >= (app.canvas.low_quality_zoom_threshold ?? 0.5);
+    const margin = 15;
+    const text_color = LiteGraph.WIDGET_TEXT_COLOR;
+    const secondary_text_color = LiteGraph.WIDGET_SECONDARY_TEXT_COLOR;
 
-    btn.addEventListener("click", () => {
-        const currentValue = widget.value || "";
-        let startPath = "";
-        if (currentValue) {
-            // Try to start from directory of current value
-            const dirPart = currentValue.replace(/[\\/][^\\/]*$/, "");
-            if (dirPart && dirPart !== currentValue) {
-                startPath = dirPart;
-            } else {
-                startPath = currentValue;
-            }
-        }
+    // Background pill
+    ctx.textAlign = "left";
+    ctx.strokeStyle = LiteGraph.WIDGET_OUTLINE_COLOR;
+    ctx.fillStyle = LiteGraph.WIDGET_BGCOLOR;
+    ctx.beginPath();
+    if (show_text)
+        ctx.roundRect(margin, y, widget_width - margin * 2, H, [H * 0.5]);
+    else
+        ctx.rect(margin, y, widget_width - margin * 2, H);
+    ctx.fill();
 
-        openFileBrowser({
-            startPath,
-            extensions,
-            title: mode === "directory" ? "Select Folder" : "Select File",
-            mode,
-            onSelect: (selectedPath) => {
-                if (isSequence) {
-                    widget.value = detectSequencePattern(selectedPath);
-                } else {
-                    widget.value = selectedPath;
-                }
-                widget.callback?.(widget.value);
-                app.graph.setDirtyCanvas(true);
-            },
-        });
+    if (!show_text) return;
+    if (!this.disabled) ctx.stroke();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margin, y, widget_width - margin * 2, H);
+    ctx.clip();
+
+    // Label on left
+    let freeWidth = widget_width - (margin * 2 + ICON_ZONE + 20);
+    ctx.fillStyle = secondary_text_color;
+    const label = this.label || this.name;
+    if (label != null) {
+        const [labelDisplay, labelWidth] = fitText(ctx, label, freeWidth);
+        freeWidth -= labelWidth;
+        ctx.fillText(labelDisplay, margin * 2, y + H * 0.7);
+    }
+
+    // Path value on right (before icon zone)
+    ctx.fillStyle = this.value ? text_color : "#777";
+    ctx.textAlign = "right";
+    const valueText = String(this.value || this.options?.placeholder || "");
+    const [displayText] = fitPath(ctx, valueText, freeWidth);
+    ctx.fillText(displayText, widget_width - margin - ICON_ZONE, y + H * 0.7);
+
+    ctx.restore();
+
+    // Folder icon on right edge
+    ctx.save();
+    const iconCx = widget_width - margin - ICON_ZONE / 2;
+    const iconCy = y + H / 2;
+
+    // Subtle separator line
+    ctx.strokeStyle = LiteGraph.WIDGET_OUTLINE_COLOR;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(widget_width - margin - ICON_ZONE, y + 3);
+    ctx.lineTo(widget_width - margin - ICON_ZONE, y + H - 3);
+    ctx.stroke();
+
+    drawFolderIcon(ctx, iconCx, iconCy, H * 0.7);
+    ctx.restore();
+}
+
+// Mouse handler: opens file browser on pointer-down only (VHS searchBox pattern)
+// Returning truthy tells LiteGraph we handled this event — skip default prompt
+function pathWidgetMouse(event, pos, node) {
+    if (event.type !== "pointerdown") return true;
+    if (this._browseOpen) return true;
+    this._browseOpen = true;
+
+    const widget = this;
+    const config = this._browseConfig;
+    const currentValue = this.value || "";
+    let startPath = "";
+    if (currentValue) {
+        const dirPart = currentValue.replace(/[\\/][^\\/]*$/, "");
+        if (dirPart && dirPart !== currentValue) startPath = dirPart;
+        else startPath = currentValue;
+    }
+
+    openFileBrowser({
+        startPath,
+        extensions: config.extensions,
+        title: config.mode === "directory" ? "Select Folder" : "Select File",
+        mode: config.mode,
+        onSelect: (selectedPath) => {
+            widget.value = config.isSequence ? detectSequencePattern(selectedPath) : selectedPath;
+            widget.callback?.(widget.value);
+            app.graph.setDirtyCanvas(true);
+        },
+        onClose: () => {
+            widget._browseOpen = false;
+        },
     });
+    return true;
+}
 
-    const browseWidget = node.addDOMWidget(`${targetWidget}_browse`, "btn", btn, {
-        serialize: false,
-        getMinHeight: () => 26,
-    });
-    browseWidget.computeSize = () => [200, 30];
+function injectBrowseWidget(node, target) {
+    const widgetIndex = node.widgets?.findIndex(w => w.name === target.widget);
+    if (widgetIndex == null || widgetIndex < 0) return;
+    const original = node.widgets[widgetIndex];
+    if (original._hasBrowse) return;
+
+    // Replace the original STRING widget with a fresh custom-typed widget.
+    // Changing type on an existing "text" widget is not enough — LiteGraph
+    // still treats it as text internally and opens the default "Value" prompt.
+    // Creating a new widget object (like VHS VHSPATH) ensures it was never
+    // type "text", so processNodeWidgets skips the prompt entirely.
+    const replacement = {
+        name: original.name,
+        type: "COCO.PATH",
+        value: original.value || "",
+        options: original.options || {},
+        callback: original.callback,
+        y: original.y,
+        last_y: original.last_y,
+        _hasBrowse: true,
+        _browseOpen: false,
+        _browseConfig: {
+            extensions: target.extensions,
+            mode: target.mode,
+            isSequence: target.nodeClass === "LoadExrSequence",
+        },
+        draw: pathWidgetDraw,
+        mouse: pathWidgetMouse,
+        computeSize(width) {
+            return [width, LiteGraph.NODE_WIDGET_HEIGHT];
+        },
+    };
+    node.widgets[widgetIndex] = replacement;
 }
 
 app.registerExtension({
@@ -299,11 +436,7 @@ app.registerExtension({
         const nodeClass = node.constructor.type || node.type;
         for (const target of BROWSE_TARGETS) {
             if (nodeClass === target.nodeClass) {
-                const isSequence = target.nodeClass === "LoadExrSequence";
-                // Defer to next frame so all widgets are created
-                requestAnimationFrame(() => {
-                    injectBrowseButton(node, target.widget, target.extensions, target.mode, isSequence);
-                });
+                injectBrowseWidget(node, target);
                 break;
             }
         }
