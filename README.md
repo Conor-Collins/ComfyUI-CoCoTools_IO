@@ -63,6 +63,37 @@ git checkout beta
 - **Batch sequences** — `####` frame patterns with configurable start/end/step and white frame placeholders for missing files
 - **Dynamic file browser** — interactive file/folder selection for load and save nodes
 - **Format-aware saving** — per-format widgets for bit depth (8/16/32), EXR compression (zip, zips, dwaa, etc.), and JPEG/WebP quality
+- **Path tokens** — dynamic tokens in saver output paths for dates, filenames, and layer names
+
+## Path Tokens (Image Saver)
+
+The Image Saver supports token-based path templating in both the **file_path** (directory) and **filename** fields. Tokens are resolved at save time.
+
+### Supported Tokens
+
+| Token | Example Output | Description |
+|-------|---------------|-------------|
+| `%date%` | `2026-03-14` | Current date (ISO format) |
+| `%date:dd-MM-yyyy%` | `14-03-2026` | Current date (custom format) |
+| `%date:yyyyMMdd%` | `20260314` | Current date (compact) |
+| `%time%` | `15-30-45` | Current time (HH-mm-ss) |
+| `%time:HH-mm%` | `15-30` | Current time (custom format) |
+| `%filename%` | `beauty_pass` | Base name of connected input image (requires `source_path` input) |
+| `%layer%` | `diffuse` | Layer name from connected EXR data (requires `layer_name` input) |
+
+### Format Placeholders
+
+`yyyy` (year), `MM` (month), `dd` (day), `HH` (hour), `mm` (minute), `ss` (second)
+
+### Examples
+
+| file_path | filename | Result |
+|-----------|----------|--------|
+| `Maps/%date:dd-MM-yyyy%` | `depth_0001` | `Maps/14-03-2026/depth_0001.exr` |
+| `renders/%date%` | `%filename%_####` | `renders/2026-03-14/beauty_pass_0001.exr` |
+| `%date:yyyyMMdd%_%time:HH-mm%` | `%layer%` | `20260314_15-30/diffuse.exr` |
+
+To use `%filename%` or `%layer%`, connect the optional **source_path** or **layer_name** string inputs on the Image Saver node from an upstream loader. If not connected, these tokens resolve to `FILENAME_MISSING` or `LAYER_MISSING`.
 
 ## Dependencies
 

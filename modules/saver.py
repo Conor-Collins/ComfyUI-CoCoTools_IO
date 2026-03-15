@@ -16,6 +16,7 @@ try:
     from ..utils.debug_utils import debug_log, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
     from ..utils.sequence_utils import SequenceHandler, DynamicUIHelper
+    from ..utils.token_utils import resolve_tokens
 except ImportError:
     # Fallback if utils not available
     def debug_log(logger, level, simple_msg, verbose_msg=None, **kwargs):
@@ -37,6 +38,8 @@ except ImportError:
         def create_save_mode_widgets(): return {"sequence": [["start_frame", "INT", {"default": 1}], ["frame_step", "INT", {"default": 1}]]}
         @staticmethod
         def create_versioning_widgets(): return {"versioning": [["version", "INT", {"default": 1}]]}
+
+    def resolve_tokens(template, context=None): return template
 
 class SaverNode:
     """Optimized image saver node with consistent bit depth handling"""
@@ -93,6 +96,10 @@ class SaverNode:
                     "description": "Enable version numbering",
                 }),
                 "file_type": (["exr", "png", "jpg", "webp", "tiff"], {"default": "png", "formats": format_widgets}),
+            },
+            "optional": {
+                "source_path": ("STRING", {"default": "", "description": "Input image path for %filename% token"}),
+                "layer_name": ("STRING", {"default": "", "description": "Layer name for %layer% token"}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -274,7 +281,7 @@ class SaverNode:
     def save_images(self, images, file_path, filename, save_mode="single", file_type="png",
                    bit_depth=None, quality=None, save_as_grayscale=None, use_versioning=False,
                    version=1, start_frame=None, frame_step=None, prompt=None, extra_pnginfo=None,
-                   exr_compression=None, **kwargs):
+                   exr_compression=None, source_path="", layer_name="", **kwargs):
         """Main save function with optimized pipeline - handles missing contextual inputs and sequence mode"""
 
         # Provide format-specific defaults for missing inputs
@@ -307,6 +314,14 @@ class SaverNode:
             debug_log(logger, "debug", f"Saving {len(images)} images in {save_mode} mode",
                      f"Save mode: {save_mode}, Is sequence: {is_sequence_mode}, File type: {file_type}")
             bit_depth = self.validate_bit_depth(file_type, bit_depth)
+
+            # Resolve path tokens (%date%, %time%, %filename%, %layer%)
+            token_context = {
+                "filename": os.path.splitext(os.path.basename(source_path))[0] if source_path else None,
+                "layer": layer_name if layer_name else None,
+            }
+            file_path = resolve_tokens(file_path, token_context)
+            filename = resolve_tokens(filename, token_context)
 
             # Build base path
             if file_path:
