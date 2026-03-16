@@ -1,4 +1,5 @@
 import os
+import re
 import torch
 import numpy as np
 import tifffile
@@ -98,6 +99,8 @@ class SaverNode:
                 "file_type": (["exr", "png", "jpg", "webp", "tiff"], {"default": "png", "formats": format_widgets}),
             },
             "optional": {
+                "start_frame": ("INT", {"default": 1, "min": 0, "description": "Starting frame number for sequence mode"}),
+                "frame_step": ("INT", {"default": 1, "min": 1, "description": "Frame number increment for sequence mode"}),
                 "source_path": ("STRING", {"default": "", "description": "Input image path for %filename% token"}),
                 "layer_name": ("STRING", {"default": "", "description": "Layer name for %layer% token"}),
             },
@@ -343,9 +346,10 @@ class SaverNode:
 
                 # Build output path based on mode
                 if is_sequence_mode and SequenceHandler.detect_sequence_pattern(filename):
-                    # Sequence mode with #### pattern
+                    # Sequence mode with #### pattern - padding width matches # count
+                    pad = len(re.search(r'(#+)', filename).group(1))
                     frame_number = start_frame + (i * frame_step)
-                    sequence_filename = filename.replace('####', f'{frame_number:04d}')
+                    sequence_filename = re.sub(r'#+', f'{frame_number:0{pad}d}', filename)
                     out_path = f"{os.path.join(os.path.dirname(base_path), sequence_filename)}{version_str}.{file_type}"
                 elif is_sequence_mode:
                     # Sequence mode without pattern - use frame numbers
