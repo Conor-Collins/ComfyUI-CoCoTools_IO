@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 try:
     from ..utils.debug_utils import debug_log, format_tensor_info
     from ..utils.preview_utils import generate_preview_for_comfyui
-    from ..utils.sequence_utils import SequenceHandler, DynamicUIHelper
+    from ..utils.sequence_utils import SequenceHandler
     from ..utils.token_utils import resolve_tokens
 except ImportError:
     # Fallback if utils not available
@@ -31,14 +31,6 @@ except ImportError:
     class SequenceHandler:
         @staticmethod
         def detect_sequence_pattern(path): return '####' in path if path else False
-        @staticmethod
-        def generate_frame_paths(pattern, start, count, step): return []
-
-    class DynamicUIHelper:
-        @staticmethod
-        def create_save_mode_widgets(): return {"sequence": [["start_frame", "INT", {"default": 1}], ["frame_step", "INT", {"default": 1}]]}
-        @staticmethod
-        def create_versioning_widgets(): return {"versioning": [["version", "INT", {"default": 1}]]}
 
     def resolve_tokens(template, context=None): return template
 
@@ -78,10 +70,6 @@ class SaverNode:
                 ["quality", "INT", {"default": 95, "min": 1, "max": 100}]
             ]
         }
-
-        # Create sequence and versioning widgets using shared utilities
-        _save_mode_widgets = DynamicUIHelper.create_save_mode_widgets()
-        _versioning_widgets = DynamicUIHelper.create_versioning_widgets()
 
         return {
             "required": {
