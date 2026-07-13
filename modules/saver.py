@@ -4,6 +4,7 @@ import numpy as np
 import tifffile
 import folder_paths
 import logging
+import re
 from typing import Dict, Tuple, Optional, List
 import OpenImageIO as oiio
 from datetime import datetime
@@ -255,8 +256,44 @@ class SaverNode:
         
         tifffile.imwrite(path, data, photometric=photometric)
 
-    def get_unique_filepath(self, base_path: str) -> str:
-        """Get unique filepath with incremental counter"""
+    @staticmethod
+    def insert_suffix_before_frame(path: str, frame_token: str, suffix: str) -> str:
+        """Insert a suffix before a sequence frame token in a file path."""
+        if not frame_token or not suffix:
+            return path
+
+        dir_name = os.path.dirname(path)
+        base_name = os.path.basename(path)
+        name, ext = os.path.splitext(base_name)
+        frame_index = name.rfind(frame_token)
+        if frame_index < 0:
+            return os.path.join(dir_name, f"{name}{suffix}{ext}")
+
+        prefix = name[:frame_index]
+        rest = name[frame_index:]
+        if prefix and prefix[-1] in "._-":
+            separator = prefix[-1]
+            prefix = prefix[:-1]
+        else:
+            separator = "_"
+
+        return os.path.join(dir_name, f"{prefix}{suffix}{separator}{rest}{ext}")
+
+    @staticmethod
+    def replace_sequence_placeholder(filename: str, frame_number: int) -> Tuple[str, str]:
+        """Replace the first ####/### style placeholder and return filename plus frame token."""
+        match = re.search(r"#+", filename)
+        if not match:
+            frame_token = f"{frame_number:04d}"
+            return filename, frame_token
+
+        padding = len(match.group(0))
+        frame_token = f"{frame_number:0{padding}d}"
+        replaced = filename[:match.start()] + frame_token + filename[match.end():]
+        return replaced, frame_token
+
+    def get_unique_filepath(self, base_path: str, frame_token: Optional[str] = None) -> str:
+        """Get unique filepath with incremental counter."""
         if not os.path.exists(base_path):
             return base_path
         
@@ -266,7 +303,10 @@ class SaverNode:
         
         counter = 1
         while True:
-            new_path = os.path.join(dir_name, f"{name}_{counter}{ext}")
+            if frame_token:
+                new_path = self.insert_suffix_before_frame(base_path, frame_token, f"_{counter}")
+            else:
+                new_path = os.path.join(dir_name, f"{name}_{counter}{ext}")
             if not os.path.exists(new_path):
                 return new_path
             counter += 1
@@ -335,18 +375,24 @@ class SaverNode:
                 if is_sequence_mode and SequenceHandler.detect_sequence_pattern(filename):
                     # Sequence mode with #### pattern
                     frame_number = start_frame + (i * frame_step)
-                    sequence_filename = filename.replace('####', f'{frame_number:04d}')
-                    out_path = f"{os.path.join(os.path.dirname(base_path), sequence_filename)}{version_str}.{file_type}"
+                    sequence_filename, frame_token = self.replace_sequence_placeholder(filename, frame_number)
+                    out_path = f"{os.path.join(os.path.dirname(base_path), sequence_filename)}.{file_type}"
+                    if version_str:
+                        out_path = self.insert_suffix_before_frame(out_path, frame_token, version_str)
                 elif is_sequence_mode:
                     # Sequence mode without pattern - use frame numbers
                     frame_number = start_frame + (i * frame_step)
-                    out_path = f"{base_path}_{frame_number:04d}{version_str}.{file_type}"
+                    frame_token = f"{frame_number:04d}"
+                    out_path = f"{base_path}_{frame_token}.{file_type}"
+                    if version_str:
+                        out_path = self.insert_suffix_before_frame(out_path, frame_token, version_str)
                 else:
                     # Single mode - use index for multiple images
                     frame_str = f"_{i}" if len(images) > 1 else ""
                     out_path = f"{base_path}{version_str}{frame_str}.{file_type}"
+                    frame_token = None
                 
-                out_path = self.get_unique_filepath(out_path)
+                out_path = self.get_unique_filepath(out_path, frame_token=frame_token)
                 
                 # Save based on format
                 if file_type == "exr":
