@@ -250,6 +250,25 @@ class SaverNode:
 
         tifffile.imwrite(path, data, photometric=photometric)
 
+    @staticmethod
+    def _sequence_filename(filename: str, frame_number: int, marker: str = "") -> str:
+        """Build the sequence filename, inserting the marker before the frame number."""
+        match = re.search(r'#+', filename)
+        if match:
+            pad = len(match.group(0))
+            frame_str = f'{frame_number:0{pad}d}'
+            prefix = filename[:match.start()]
+            suffix = filename[match.end():]
+            if marker:
+                if prefix and prefix[-1] in '._-':
+                    return f"{prefix[:-1]}{marker}{prefix[-1]}{frame_str}{suffix}"
+                return f"{prefix}{marker}_{frame_str}{suffix}"
+            return f"{prefix}{frame_str}{suffix}"
+        frame_str = f'{frame_number:04d}'
+        if marker:
+            return f"{filename}{marker}_{frame_str}"
+        return f"{filename}_{frame_str}"
+
     def get_unique_filepath(self, base_path: str) -> str:
         """Get unique filepath with incremental counter"""
         if not os.path.exists(base_path):
@@ -325,6 +344,21 @@ class SaverNode:
             # Add version string
             version_str = f"_v{version:03d}" if use_versioning and version >= 0 else ""
 
+            # Sequence mode: pick ONE collision counter for the whole run,
+            # the smallest N such that every frame of the run is free
+            sequence_marker = version_str
+            if is_sequence_mode:
+                seq_dir = os.path.dirname(base_path)
+                max_versions = 9999
+                for n in range(max_versions + 1):
+                    marker = version_str + (f"_{n}" if n else "")
+                    paths = [f"{os.path.join(seq_dir, self._sequence_filename(filename, start_frame + i * frame_step, marker))}.{file_type}" for i in range(len(images))]
+                    if not any(os.path.exists(p) for p in paths):
+                        sequence_marker = marker
+                        break
+                else:
+                    raise RuntimeError(f"Exceeded {max_versions} versions for {filename}")
+
             # Track saved files for preview
             saved_files = []
 
@@ -333,22 +367,17 @@ class SaverNode:
                 img_np = self.prepare_image(img_tensor, save_as_grayscale, file_type)
 
                 # Build output path based on mode
-                if is_sequence_mode and SequenceHandler.detect_sequence_pattern(filename):
-                    # Sequence mode with #### pattern - padding width matches # count
-                    pad = len(re.search(r'(#+)', filename).group(1))
+                if is_sequence_mode:
+                    # Sequence mode - version and collision marker go before the frame number
                     frame_number = start_frame + (i * frame_step)
-                    sequence_filename = re.sub(r'#+', f'{frame_number:0{pad}d}', filename)
-                    out_path = f"{os.path.join(os.path.dirname(base_path), sequence_filename)}{version_str}.{file_type}"
-                elif is_sequence_mode:
-                    # Sequence mode without pattern - use frame numbers
-                    frame_number = start_frame + (i * frame_step)
-                    out_path = f"{base_path}_{frame_number:04d}{version_str}.{file_type}"
+                    out_path = f"{os.path.join(os.path.dirname(base_path), self._sequence_filename(filename, frame_number, sequence_marker))}.{file_type}"
                 else:
                     # Single mode - use index for multiple images
                     frame_str = f"_{i}" if len(images) > 1 else ""
                     out_path = f"{base_path}{version_str}{frame_str}.{file_type}"
 
-                out_path = self.get_unique_filepath(out_path)
+                if not is_sequence_mode:
+                    out_path = self.get_unique_filepath(out_path)
 
                 # Save based on format
                 if file_type == "exr":
