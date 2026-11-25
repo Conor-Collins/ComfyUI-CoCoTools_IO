@@ -1,4 +1,5 @@
 import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 
 app.registerExtension({
     name: "LoadExrLayerByName",
@@ -200,7 +201,6 @@ app.registerExtension({
         // Update the node tooltip and title
         nodeType.prototype.updateNodeHelp = function() {
             const layerList = this.availableLayers.join(", ");
-            this.title = `${isCryptomatte ? "Cryptomatte " : ""}Load EXR Layer by Name`;
             this.help = `Available layers: ${layerList}`;
         };
         
@@ -337,7 +337,7 @@ app.registerExtension({
     // Setup global handler for all nodes
     async setup() {
         // Listen for graph execution
-        app.addEventListener("graphExecuted", (e) => {
+        api.addEventListener("executed", (e) => {
             try {
                 // Find both node types independently
                 const layerNodes = findNodes("LoadExrLayerByName");
