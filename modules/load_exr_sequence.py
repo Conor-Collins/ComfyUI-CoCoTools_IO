@@ -92,7 +92,7 @@ class LoadExrSequence:
                     return float("NaN")  # No files found, always try
 
                 # Extract frame numbers and select frames that would be loaded
-                frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files)
+                frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files, sequence_path)
                 selected_frames = SequenceHandler.select_sequence_frames(
                     frame_info, start_frame, end_frame, frame_step
                 )
@@ -165,7 +165,7 @@ class LoadExrSequence:
                 raise FileNotFoundError(f"No sequence frames found for pattern: {sequence_path}")
 
             # Extract frame numbers and select frames
-            frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files)
+            frame_info = SequenceHandler.extract_frame_numbers(existing_sequence_files, sequence_path)
             selected_frames = SequenceHandler.select_sequence_frames(
                 frame_info, start_frame, end_frame, frame_step
             )

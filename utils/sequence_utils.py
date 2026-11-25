@@ -138,11 +138,11 @@ class SequenceHandler:
         return sorted(valid_files)
 
     @staticmethod
-    def extract_frame_numbers(file_paths: list[str]) -> list[tuple[int, str]]:
+    def extract_frame_numbers(file_paths: list[str], pattern: str | None = None) -> list[tuple[int, str]]:
         """Extract frame numbers from file paths and return sorted list of (frame_num, path) tuples"""
         frame_info = []
         for file_path in file_paths:
-            frame_num = SequenceHandler.extract_frame_number_from_path(file_path)
+            frame_num = SequenceHandler.extract_frame_number_from_path(file_path, pattern)
             if frame_num is not None:
                 frame_info.append((frame_num, file_path))
 
@@ -233,7 +233,7 @@ class SequenceHandler:
         if not sequence_files:
             return {"is_sequence": True, "available_frames": 0}
 
-        frame_info = SequenceHandler.extract_frame_numbers(sequence_files)
+        frame_info = SequenceHandler.extract_frame_numbers(sequence_files, pattern_path)
         frame_numbers = [fn for fn, fp in frame_info]
 
         return {
